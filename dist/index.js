@@ -46,19 +46,20 @@ const core = __importStar(__nccwpck_require__(186));
 const github = __importStar(__nccwpck_require__(438));
 function wait(seconds) {
     return __awaiter(this, void 0, void 0, function* () {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         return new Promise((resolve, reject) => {
             setTimeout(resolve, seconds * 1000);
         });
     });
 }
-function run() {
+function main() {
     return __awaiter(this, void 0, void 0, function* () {
-        const githubToken = core.getInput("token", { required: true });
-        const initialDelaySeconds = parseInt(core.getInput("initial-delay-seconds", { required: true }));
-        const intervalSeconds = parseInt(core.getInput("interval-seconds", { required: true }));
-        const timeoutSeconds = parseInt(core.getInput("timeout-seconds", { required: true }));
-        const statusRegex = new RegExp(core.getInput("status-regex", { required: true }));
-        const checkRunRegex = new RegExp(core.getInput("check-run-regex", { required: true }));
+        const githubToken = core.getInput('token', { required: true });
+        const initialDelaySeconds = parseInt(core.getInput('initial-delay-seconds', { required: true }));
+        const intervalSeconds = parseInt(core.getInput('interval-seconds', { required: true }));
+        const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
+        const statusRegex = new RegExp(core.getInput('status-regex', { required: true }));
+        const checkRunRegex = new RegExp(core.getInput('check-run-regex', { required: true }));
         const octokit = github.getOctokit(githubToken);
         core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
         yield wait(initialDelaySeconds);
@@ -66,41 +67,48 @@ function run() {
     });
 }
 function isStatusPending(status) {
-    return status.state == "pending";
+    return status.state === 'pending';
 }
 function isStatusFailed(status) {
-    return status.state == "error" || status.state == "failure";
+    return status.state === 'error' || status.state === 'failure';
 }
 function isCheckRunCompleted(run) {
-    return run.status == "completed";
+    return run.status === 'completed';
 }
 function isCheckRunFailed(run) {
-    return run.conclusion == "cancelled" || run.conclusion == "failure" || run.conclusion == "timed_out";
+    return (run.conclusion === 'cancelled' ||
+        run.conclusion === 'failure' ||
+        run.conclusion === 'timed_out');
 }
 function loop(octokit, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds) {
     return __awaiter(this, void 0, void 0, function* () {
         let elapsedSeconds = 0;
-        core.info("Starting combined status check loop...");
+        core.info('Starting combined status check loop...');
         do {
-            const [statusLoopResult, checkRunLoopResult,] = yield Promise.all([
+            const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
                 combinedStatusLoopIteration(octokit, statusRegex),
-                checkRunLoopIteration(octokit, checkRunRegex),
+                checkRunLoopIteration(octokit, checkRunRegex)
             ]);
             const [pendingStatuses, completedStatuses] = statusLoopResult;
             const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
             if (pendingStatuses.length || pendingCheckRuns.length) {
                 core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
                 yield wait(intervalSeconds);
+                elapsedSeconds += intervalSeconds;
                 continue;
             }
-            const failedStatuses = completedStatuses.filter(isStatusFailed).map((status) => status.context);
-            const failedCheckRuns = completedCheckRuns.filter(isCheckRunFailed).map((run) => run.name);
+            const failedStatuses = completedStatuses
+                .filter(isStatusFailed)
+                .map(status => status.context);
+            const failedCheckRuns = completedCheckRuns
+                .filter(isCheckRunFailed)
+                .map(run => run.name);
             if (failedStatuses.length) {
-                core.error("The following statuses have failed: " + failedStatuses.join(", "));
-                core.error("The following check runs have failed: " + failedCheckRuns.join(", "));
+                core.error(`The following statuses have failed: ${failedStatuses.join(', ')}`);
+                core.error(`The following check runs have failed: ${failedCheckRuns.join(', ')}`);
                 return;
             }
-            core.info("All statuses and check runs have completed successfully.");
+            core.info('All statuses and check runs have completed successfully.');
             return;
         } while (elapsedSeconds < timeoutSeconds);
         core.error(`Action timed out after ${timeoutSeconds} seconds.`);
@@ -112,7 +120,7 @@ function combinedStatusLoopIteration(octokit, regex) {
         const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            ref: github.context.sha,
+            ref: github.context.sha
         });
         let totalStatuses = 0, filteredStatuses = 0;
         const pendingStatuses = [];
@@ -152,7 +160,7 @@ function checkRunLoopIteration(octokit, regex) {
         const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            ref: github.context.sha,
+            ref: github.context.sha
         });
         let totalCheckRuns = 0, filteredCheckRuns = 0;
         const pendingCheckRuns = [];
@@ -186,7 +194,7 @@ function checkRunLoopIteration(octokit, regex) {
         return [pendingCheckRuns, completedCheckRuns];
     });
 }
-run();
+main();
 
 
 /***/ }),
