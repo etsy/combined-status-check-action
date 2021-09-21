@@ -194,7 +194,10 @@ function checkRunLoopIteration(octokit, regex) {
         return [pendingCheckRuns, completedCheckRuns];
     });
 }
-main();
+// eslint-disable-next-line github/no-then
+main().catch(err => {
+    core.error(err);
+});
 
 
 /***/ }),
