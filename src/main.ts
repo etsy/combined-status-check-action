@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods'
+import {PullRequest} from '@octokit/webhooks-types'
 
 type Status = RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
 type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
@@ -11,6 +12,16 @@ async function wait(seconds: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     setTimeout(resolve, seconds * 1000)
   })
+}
+
+function getSHAFromContext(ctx: typeof github.context): string {
+  if (github.context.eventName === 'pull_request') {
+    const pullRequestEvent = github.context.payload as PullRequest
+
+    return pullRequestEvent.head.sha
+  } else {
+    return ctx.sha
+  }
 }
 
 async function main(): Promise<void> {
@@ -32,6 +43,10 @@ async function main(): Promise<void> {
     core.getInput('check-run-regex', {required: true})
   )
 
+  const sha = getSHAFromContext(github.context)
+
+  core.info(`Executing combined-status-check-action on SHA ${sha}.`)
+
   const octokit = github.getOctokit(githubToken)
 
   core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`)
@@ -40,6 +55,7 @@ async function main(): Promise<void> {
 
   await loop(
     octokit,
+    sha,
     statusRegex,
     checkRunRegex,
     intervalSeconds,
@@ -79,6 +95,7 @@ function isCheckRunFailed(run: CompletedCheckRun): run is FailedCheckRun {
 
 async function loop(
   octokit: Octokit,
+  sha: string,
   statusRegex: RegExp,
   checkRunRegex: RegExp,
   intervalSeconds: number,
@@ -90,8 +107,8 @@ async function loop(
 
   do {
     const [statusLoopResult, checkRunLoopResult] = await Promise.all([
-      combinedStatusLoopIteration(octokit, statusRegex),
-      checkRunLoopIteration(octokit, checkRunRegex)
+      combinedStatusLoopIteration(octokit, sha, statusRegex),
+      checkRunLoopIteration(octokit, sha, checkRunRegex)
     ])
 
     const [pendingStatuses, completedStatuses] = statusLoopResult
@@ -136,6 +153,7 @@ async function loop(
 
 async function combinedStatusLoopIteration(
   octokit: Octokit,
+  sha: string,
   regex: RegExp
 ): Promise<[PendingStatus[], CompletedStatus[]]> {
   const combinedStatusIterator = octokit.paginate.iterator(
@@ -143,7 +161,7 @@ async function combinedStatusLoopIteration(
     {
       owner: github.context.repo.owner,
       repo: github.context.repo.repo,
-      ref: github.context.sha
+      ref: sha
     }
   )
 
@@ -180,6 +198,7 @@ async function combinedStatusLoopIteration(
 
 async function checkRunLoopIteration(
   octokit: Octokit,
+  sha: string,
   regex: RegExp
 ): Promise<[PendingCheckRun[], CompletedCheckRun[]]> {
   const checkRunsIterator = octokit.paginate.iterator(
@@ -187,7 +206,7 @@ async function checkRunLoopIteration(
     {
       owner: github.context.repo.owner,
       repo: github.context.repo.repo,
-      ref: github.context.sha
+      ref: sha
     }
   )
 

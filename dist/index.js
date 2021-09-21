@@ -52,6 +52,15 @@ function wait(seconds) {
         });
     });
 }
+function getSHAFromContext(ctx) {
+    if (github.context.eventName === 'pull_request') {
+        const pullRequestEvent = github.context.payload;
+        return pullRequestEvent.head.sha;
+    }
+    else {
+        return ctx.sha;
+    }
+}
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
         const githubToken = core.getInput('token', { required: true });
@@ -60,10 +69,12 @@ function main() {
         const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
         const statusRegex = new RegExp(core.getInput('status-regex', { required: true }));
         const checkRunRegex = new RegExp(core.getInput('check-run-regex', { required: true }));
+        const sha = getSHAFromContext(github.context);
+        core.info(`Executing combined-status-check-action on SHA ${sha}.`);
         const octokit = github.getOctokit(githubToken);
         core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
         yield wait(initialDelaySeconds);
-        yield loop(octokit, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds);
+        yield loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds);
     });
 }
 function isStatusPending(status) {
@@ -80,14 +91,14 @@ function isCheckRunFailed(run) {
         run.conclusion === 'failure' ||
         run.conclusion === 'timed_out');
 }
-function loop(octokit, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds) {
+function loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds) {
     return __awaiter(this, void 0, void 0, function* () {
         let elapsedSeconds = 0;
         core.info('Starting combined status check loop...');
         do {
             const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
-                combinedStatusLoopIteration(octokit, statusRegex),
-                checkRunLoopIteration(octokit, checkRunRegex)
+                combinedStatusLoopIteration(octokit, sha, statusRegex),
+                checkRunLoopIteration(octokit, sha, checkRunRegex)
             ]);
             const [pendingStatuses, completedStatuses] = statusLoopResult;
             const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
@@ -114,13 +125,13 @@ function loop(octokit, statusRegex, checkRunRegex, intervalSeconds, timeoutSecon
         core.error(`Action timed out after ${timeoutSeconds} seconds.`);
     });
 }
-function combinedStatusLoopIteration(octokit, regex) {
+function combinedStatusLoopIteration(octokit, sha, regex) {
     var e_1, _a;
     return __awaiter(this, void 0, void 0, function* () {
         const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            ref: github.context.sha
+            ref: sha
         });
         let totalStatuses = 0, filteredStatuses = 0;
         const pendingStatuses = [];
@@ -154,13 +165,13 @@ function combinedStatusLoopIteration(octokit, regex) {
         return [pendingStatuses, completedStatuses];
     });
 }
-function checkRunLoopIteration(octokit, regex) {
+function checkRunLoopIteration(octokit, sha, regex) {
     var e_2, _a;
     return __awaiter(this, void 0, void 0, function* () {
         const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            ref: github.context.sha
+            ref: sha
         });
         let totalCheckRuns = 0, filteredCheckRuns = 0;
         const pendingCheckRuns = [];
