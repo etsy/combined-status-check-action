@@ -10,6 +10,10 @@ inputs:
     description: The number of seconds to wait before examining status checks.
     default: 10
 
+  interval-seconds:
+    desription: The number of seconds to wait in between examining status checks.
+    default: 2
+
   timeout-seconds:
     description: The maximum number of seconds to wait for all status checks to resolve.
     default: 300
