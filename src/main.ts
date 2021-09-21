@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods'
-import {PullRequest} from '@octokit/webhooks-types'
+import {PullRequestEvent} from '@octokit/webhooks-types'
 
 type Status = RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
 type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
@@ -15,10 +15,10 @@ async function wait(seconds: number): Promise<void> {
 }
 
 function getSHAFromContext(ctx: typeof github.context): string {
-  if (github.context.eventName === 'pull_request') {
-    const pullRequestEvent = github.context.payload as PullRequest
+  if (ctx.eventName === 'pull_request') {
+    const pullRequestEvent = ctx.payload as PullRequestEvent
 
-    return pullRequestEvent.head.sha
+    return pullRequestEvent.pull_request.head.sha
   } else {
     return ctx.sha
   }
@@ -241,7 +241,11 @@ async function checkRunLoopIteration(
   return [pendingCheckRuns, completedCheckRuns]
 }
 
-// eslint-disable-next-line github/no-then
-main().catch(err => {
-  core.error(err)
-})
+try {
+  // eslint-disable-next-line github/no-then
+  main().catch(err => {
+    core.error(err)
+  })
+} catch (err) {
+  core.error(String(err))
+}

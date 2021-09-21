@@ -53,9 +53,9 @@ function wait(seconds) {
     });
 }
 function getSHAFromContext(ctx) {
-    if (github.context.eventName === 'pull_request') {
-        const pullRequestEvent = github.context.payload;
-        return pullRequestEvent.head.sha;
+    if (ctx.eventName === 'pull_request') {
+        const pullRequestEvent = ctx.payload;
+        return pullRequestEvent.pull_request.head.sha;
     }
     else {
         return ctx.sha;
@@ -205,10 +205,15 @@ function checkRunLoopIteration(octokit, sha, regex) {
         return [pendingCheckRuns, completedCheckRuns];
     });
 }
-// eslint-disable-next-line github/no-then
-main().catch(err => {
-    core.error(err);
-});
+try {
+    // eslint-disable-next-line github/no-then
+    main().catch(err => {
+        core.error(err);
+    });
+}
+catch (err) {
+    core.error(String(err));
+}
 
 
 /***/ }),
