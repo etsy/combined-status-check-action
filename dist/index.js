@@ -103,6 +103,10 @@ function loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeout
             const [pendingStatuses, completedStatuses] = statusLoopResult;
             const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
             if (pendingStatuses.length || pendingCheckRuns.length) {
+                const statusNames = pendingStatuses.map(status => status.context);
+                const checkRunNames = pendingCheckRuns.map(run => run.name);
+                core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
+                core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
                 core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
                 yield wait(intervalSeconds);
                 elapsedSeconds += intervalSeconds;
@@ -114,9 +118,9 @@ function loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeout
             const failedCheckRuns = completedCheckRuns
                 .filter(isCheckRunFailed)
                 .map(run => run.name);
-            if (failedStatuses.length) {
-                core.error(`The following statuses have failed: ${failedStatuses.join(', ')}`);
-                core.error(`The following check runs have failed: ${failedCheckRuns.join(', ')}`);
+            if (failedStatuses.length || failedCheckRuns.length) {
+                core.error(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
+                core.error(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
                 return;
             }
             core.info('All statuses and check runs have completed successfully.');

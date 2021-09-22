@@ -115,6 +115,16 @@ async function loop(
     const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult
 
     if (pendingStatuses.length || pendingCheckRuns.length) {
+      const statusNames = pendingStatuses.map(status => status.context)
+      const checkRunNames = pendingCheckRuns.map(run => run.name)
+
+      core.info(
+        `The following statuses are pending: [${statusNames.join(', ')}].`
+      )
+      core.info(
+        `The following check runs are pending: [${checkRunNames.join(', ')}].`
+      )
+
       core.info(
         `Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`
       )
@@ -133,12 +143,12 @@ async function loop(
       .filter(isCheckRunFailed)
       .map(run => run.name)
 
-    if (failedStatuses.length) {
+    if (failedStatuses.length || failedCheckRuns.length) {
       core.error(
-        `The following statuses have failed: ${failedStatuses.join(', ')}`
+        `The following statuses have failed: [${failedStatuses.join(', ')}].`
       )
       core.error(
-        `The following check runs have failed: ${failedCheckRuns.join(', ')}`
+        `The following check runs have failed: [${failedCheckRuns.join(', ')}].`
       )
 
       return
