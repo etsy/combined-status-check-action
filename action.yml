@@ -2,10 +2,34 @@ name: 'Your name here'
 description: 'Provide a description here'
 author: 'Your name or organization here'
 inputs:
-  milliseconds: # change this
-    required: true
-    description: 'input description here'
-    default: 'default value if applicable'
+  token:
+    description: GitHub Actions access token.
+    default: ${{ github.token }}
+
+  initial-delay-seconds:
+    description: The number of seconds to wait before examining status checks.
+    default: 10
+
+  interval-seconds:
+    desription: The number of seconds to wait in between examining status checks.
+    default: 2
+
+  timeout-seconds:
+    description: The maximum number of seconds to wait for all status checks to resolve.
+    default: 300
+
+  status-regex:
+    description: >
+      A regular expression used to filter statuses based on their `context` attribute. Statuses that do not match this
+      expression are ignored.
+    default: ^.*$
+
+  check-run-regex:
+    description: >
+      A regular expression used to filter check runs based on their `name` attribute. Check runs that to not match this
+      expression are ignored.
+    default: ^.*$
+
 runs:
   using: 'node12'
   main: 'dist/index.js'
