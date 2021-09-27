@@ -1,7 +1,10 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods'
+
+// eslint-disable-next-line import/no-unresolved, sort-imports
 import {PullRequestEvent} from '@octokit/webhooks-types'
+
 
 type Status = RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
 type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
@@ -175,8 +178,8 @@ async function combinedStatusLoopIteration(
     }
   )
 
-  let totalStatuses = 0,
-    filteredStatuses = 0
+  let totalStatuses = 0
+  let filteredStatuses = 0
 
   const pendingStatuses: PendingStatus[] = []
   const completedStatuses: CompletedStatus[] = []
@@ -220,8 +223,8 @@ async function checkRunLoopIteration(
     }
   )
 
-  let totalCheckRuns = 0,
-    filteredCheckRuns = 0
+  let totalCheckRuns = 0
+  let filteredCheckRuns = 0
 
   const pendingCheckRuns: PendingCheckRun[] = []
   const completedCheckRuns: CompletedCheckRun[] = []
