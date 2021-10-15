@@ -1,6 +1,6 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'Combined Status Check'
+description: 'Combine many status checks into one required check.'
+author: 'Etsy'
 inputs:
   token:
     description: GitHub Actions access token.
