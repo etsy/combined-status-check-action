@@ -11,8 +11,7 @@ type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['dat
 type Octokit = ReturnType<typeof github.getOctokit>
 
 async function wait(seconds: number): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<void>(resolve => {
     setTimeout(resolve, seconds * 1000)
   })
 }
