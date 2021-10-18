@@ -2,17 +2,15 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods'
 
-// eslint-disable-next-line import/no-unresolved, sort-imports
+// eslint-disable-next-line import/no-unresolved,sort-imports
 import {PullRequestEvent} from '@octokit/webhooks-types'
-
 
 type Status = RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
 type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
 type Octokit = ReturnType<typeof github.getOctokit>
 
 async function wait(seconds: number): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<void>(resolve => {
     setTimeout(resolve, seconds * 1000)
   })
 }
@@ -142,26 +140,29 @@ async function loop(
     const failedStatuses = completedStatuses
       .filter(isStatusFailed)
       .map(status => status.context)
+
     const failedCheckRuns = completedCheckRuns
       .filter(isCheckRunFailed)
       .map(run => run.name)
 
-    if (failedStatuses.length || failedCheckRuns.length) {
-      core.error(
+    if (failedStatuses.length) {
+      core.setFailed(
         `The following statuses have failed: [${failedStatuses.join(', ')}].`
       )
-      core.error(
-        `The following check runs have failed: [${failedCheckRuns.join(', ')}].`
-      )
-
-      return
     }
 
-    core.info('All statuses and check runs have completed successfully.')
+    if (failedCheckRuns.length) {
+      core.setFailed(
+        `The following check runs have failed: [${failedCheckRuns.join(', ')}].`
+      )
+    }
+
+    core.info('All statuses and check runs have completed.')
+
     return
   } while (elapsedSeconds < timeoutSeconds)
 
-  core.error(`Action timed out after ${timeoutSeconds} seconds.`)
+  core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`)
 }
 
 async function combinedStatusLoopIteration(
@@ -257,8 +258,8 @@ async function checkRunLoopIteration(
 try {
   // eslint-disable-next-line github/no-then
   main().catch(err => {
-    core.error(err)
+    core.setFailed(err)
   })
 } catch (err) {
-  core.error(String(err))
+  core.setFailed(String(err))
 }
