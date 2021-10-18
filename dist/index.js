@@ -46,8 +46,7 @@ const core = __importStar(__nccwpck_require__(186));
 const github = __importStar(__nccwpck_require__(438));
 function wait(seconds) {
     return __awaiter(this, void 0, void 0, function* () {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        return new Promise((resolve, reject) => {
+        return new Promise(resolve => {
             setTimeout(resolve, seconds * 1000);
         });
     });
@@ -118,15 +117,16 @@ function loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeout
             const failedCheckRuns = completedCheckRuns
                 .filter(isCheckRunFailed)
                 .map(run => run.name);
-            if (failedStatuses.length || failedCheckRuns.length) {
-                core.error(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
-                core.error(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
-                return;
+            if (failedStatuses.length) {
+                core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
             }
-            core.info('All statuses and check runs have completed successfully.');
+            if (failedCheckRuns.length) {
+                core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
+            }
+            core.info('All statuses and check runs have completed.');
             return;
         } while (elapsedSeconds < timeoutSeconds);
-        core.error(`Action timed out after ${timeoutSeconds} seconds.`);
+        core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
     });
 }
 function combinedStatusLoopIteration(octokit, sha, regex) {
@@ -137,7 +137,8 @@ function combinedStatusLoopIteration(octokit, sha, regex) {
             repo: github.context.repo.repo,
             ref: sha
         });
-        let totalStatuses = 0, filteredStatuses = 0;
+        let totalStatuses = 0;
+        let filteredStatuses = 0;
         const pendingStatuses = [];
         const completedStatuses = [];
         try {
@@ -177,7 +178,8 @@ function checkRunLoopIteration(octokit, sha, regex) {
             repo: github.context.repo.repo,
             ref: sha
         });
-        let totalCheckRuns = 0, filteredCheckRuns = 0;
+        let totalCheckRuns = 0;
+        let filteredCheckRuns = 0;
         const pendingCheckRuns = [];
         const completedCheckRuns = [];
         try {
@@ -212,11 +214,11 @@ function checkRunLoopIteration(octokit, sha, regex) {
 try {
     // eslint-disable-next-line github/no-then
     main().catch(err => {
-        core.error(err);
+        core.setFailed(err);
     });
 }
 catch (err) {
-    core.error(String(err));
+    core.setFailed(String(err));
 }
 
 
@@ -355,7 +357,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getState = exports.saveState = exports.group = exports.endGroup = exports.startGroup = exports.info = exports.warning = exports.error = exports.debug = exports.isDebug = exports.setFailed = exports.setCommandEcho = exports.setOutput = exports.getBooleanInput = exports.getMultilineInput = exports.getInput = exports.addPath = exports.setSecret = exports.exportVariable = exports.ExitCode = void 0;
+exports.getState = exports.saveState = exports.group = exports.endGroup = exports.startGroup = exports.info = exports.notice = exports.warning = exports.error = exports.debug = exports.isDebug = exports.setFailed = exports.setCommandEcho = exports.setOutput = exports.getBooleanInput = exports.getMultilineInput = exports.getInput = exports.addPath = exports.setSecret = exports.exportVariable = exports.ExitCode = void 0;
 const command_1 = __nccwpck_require__(351);
 const file_command_1 = __nccwpck_require__(717);
 const utils_1 = __nccwpck_require__(278);
@@ -533,19 +535,30 @@ exports.debug = debug;
 /**
  * Adds an error issue
  * @param message error issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
  */
-function error(message) {
-    command_1.issue('error', message instanceof Error ? message.toString() : message);
+function error(message, properties = {}) {
+    command_1.issueCommand('error', utils_1.toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 exports.error = error;
 /**
- * Adds an warning issue
+ * Adds a warning issue
  * @param message warning issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
  */
-function warning(message) {
-    command_1.issue('warning', message instanceof Error ? message.toString() : message);
+function warning(message, properties = {}) {
+    command_1.issueCommand('warning', utils_1.toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 exports.warning = warning;
+/**
+ * Adds a notice issue
+ * @param message notice issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
+ */
+function notice(message, properties = {}) {
+    command_1.issueCommand('notice', utils_1.toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+exports.notice = notice;
 /**
  * Writes info to log with console.log.
  * @param message info message
@@ -679,7 +692,7 @@ exports.issueCommand = issueCommand;
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.toCommandValue = void 0;
+exports.toCommandProperties = exports.toCommandValue = void 0;
 /**
  * Sanitizes an input into a string so it can be passed into issueCommand safely
  * @param input input to sanitize into a string
@@ -694,6 +707,25 @@ function toCommandValue(input) {
     return JSON.stringify(input);
 }
 exports.toCommandValue = toCommandValue;
+/**
+ *
+ * @param annotationProperties
+ * @returns The command properties to send with the actual annotation command
+ * See IssueCommandProperties: https://github.com/actions/runner/blob/main/src/Runner.Worker/ActionCommandManager.cs#L646
+ */
+function toCommandProperties(annotationProperties) {
+    if (!Object.keys(annotationProperties).length) {
+        return {};
+    }
+    return {
+        title: annotationProperties.title,
+        line: annotationProperties.startLine,
+        endLine: annotationProperties.endLine,
+        col: annotationProperties.startColumn,
+        endColumn: annotationProperties.endColumn
+    };
+}
+exports.toCommandProperties = toCommandProperties;
 //# sourceMappingURL=utils.js.map
 
 /***/ }),
