@@ -2,11 +2,13 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods'
 
-// eslint-disable-next-line import/no-unresolved,sort-imports
+// eslint-disable-next-line import/no-unresolved
 import {PullRequestEvent} from '@octokit/webhooks-types'
 
-type Status = RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
-type CheckRun = RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
+type Status =
+  RestEndpointMethodTypes['repos']['getCombinedStatusForRef']['response']['data']['statuses'][0]
+type CheckRun =
+  RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
 type Octokit = ReturnType<typeof github.getOctokit>
 
 async function wait(seconds: number): Promise<void> {
