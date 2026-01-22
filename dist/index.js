@@ -46,8 +46,103 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
+const DEFAULT_CHECK_RUN_REGEX = '^.*$';
+/**
+ * Parse a newline-separated list of required check run names into a Set.
+ * Trims whitespace and filters out empty lines.
+ */
+function parseRequiredCheckRuns(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+        return new Set();
+    }
+    const names = trimmed
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    return new Set(names);
+}
+exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
+/**
+ * Validate that required-check-runs and custom check-run-regex are not both provided.
+ */
+function validateInputs(checkRunRegexInput, requiredCheckRuns) {
+    const isCustomRegex = checkRunRegexInput !== DEFAULT_CHECK_RUN_REGEX;
+    const hasRequiredChecks = requiredCheckRuns.size > 0;
+    if (isCustomRegex && hasRequiredChecks) {
+        throw new Error('Cannot use both required-check-runs and a custom check-run-regex. ' +
+            'Please use one or the other.');
+    }
+}
+exports.validateInputs = validateInputs;
+/**
+ * Fetch check runs and categorize them by required check status.
+ */
+function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
+    var _a, e_1, _b, _c;
+    return __awaiter(this, void 0, void 0, function* () {
+        const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            ref: sha
+        });
+        const foundChecks = new Map();
+        try {
+            for (var _d = true, checkRunsIterator_1 = __asyncValues(checkRunsIterator), checkRunsIterator_1_1; checkRunsIterator_1_1 = yield checkRunsIterator_1.next(), _a = checkRunsIterator_1_1.done, !_a;) {
+                _c = checkRunsIterator_1_1.value;
+                _d = false;
+                try {
+                    const response = _c;
+                    for (const checkRun of response.data) {
+                        if (requiredCheckRuns.has(checkRun.name)) {
+                            foundChecks.set(checkRun.name, {
+                                status: checkRun.status,
+                                conclusion: checkRun.conclusion
+                            });
+                        }
+                    }
+                }
+                finally {
+                    _d = true;
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (!_d && !_a && (_b = checkRunsIterator_1.return)) yield _b.call(checkRunsIterator_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        const succeeded = [];
+        const pending = [];
+        const failed = [];
+        const missing = [];
+        for (const name of requiredCheckRuns) {
+            const check = foundChecks.get(name);
+            if (!check) {
+                missing.push(name);
+            }
+            else if (check.status !== 'completed') {
+                pending.push(name);
+            }
+            else if (check.conclusion === 'success' ||
+                check.conclusion === 'skipped' ||
+                check.conclusion === 'neutral') {
+                succeeded.push(name);
+            }
+            else {
+                failed.push(name);
+            }
+        }
+        core.info(`Required checks - succeeded: ${succeeded.length}, pending: ${pending.length}, failed: ${failed.length}, missing: ${missing.length}`);
+        return { succeeded, pending, failed, missing };
+    });
+}
+exports.requiredCheckRunLoopIteration = requiredCheckRunLoopIteration;
 function wait(seconds) {
     return __awaiter(this, void 0, void 0, function* () {
         return new Promise(resolve => {
@@ -70,14 +165,23 @@ function main() {
         const initialDelaySeconds = parseInt(core.getInput('initial-delay-seconds', { required: true }));
         const intervalSeconds = parseInt(core.getInput('interval-seconds', { required: true }));
         const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
-        const statusRegex = new RegExp(core.getInput('status-regex', { required: true }));
-        const checkRunRegex = new RegExp(core.getInput('check-run-regex', { required: true }));
+        const statusRegexInput = core.getInput('status-regex', { required: true });
+        const checkRunRegexInput = core.getInput('check-run-regex', { required: true });
+        const requiredCheckRunsInput = core.getInput('required-check-runs');
+        const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
+        // Validate mutual exclusivity
+        validateInputs(checkRunRegexInput, requiredCheckRuns);
+        const statusRegex = new RegExp(statusRegexInput);
+        const checkRunRegex = new RegExp(checkRunRegexInput);
         const sha = getSHAFromContext(github.context);
         core.info(`Executing combined-status-check-action on SHA ${sha}.`);
+        if (requiredCheckRuns.size > 0) {
+            core.info(`Using required-check-runs mode with ${requiredCheckRuns.size} required checks: [${[...requiredCheckRuns].join(', ')}]`);
+        }
         const octokit = github.getOctokit(githubToken);
         core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
         yield wait(initialDelaySeconds);
-        yield loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds);
+        yield loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds);
     });
 }
 function isStatusPending(status) {
@@ -94,47 +198,108 @@ function isCheckRunFailed(run) {
         run.conclusion === 'failure' ||
         run.conclusion === 'timed_out');
 }
-function loop(octokit, sha, statusRegex, checkRunRegex, intervalSeconds, timeoutSeconds) {
+function loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds) {
     return __awaiter(this, void 0, void 0, function* () {
         let elapsedSeconds = 0;
+        const useRequiredChecksMode = requiredCheckRuns.size > 0;
         core.info('Starting combined status check loop...');
         do {
-            const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
-                combinedStatusLoopIteration(octokit, sha, statusRegex),
-                checkRunLoopIteration(octokit, sha, checkRunRegex)
-            ]);
-            const [pendingStatuses, completedStatuses] = statusLoopResult;
-            const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
-            if (pendingStatuses.length || pendingCheckRuns.length) {
-                const statusNames = pendingStatuses.map(status => status.context);
-                const checkRunNames = pendingCheckRuns.map(run => run.name);
-                core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
-                core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
-                core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
-                yield wait(intervalSeconds);
-                elapsedSeconds += intervalSeconds;
-                continue;
+            if (useRequiredChecksMode) {
+                // Required checks mode: track specific check runs by name
+                const [statusLoopResult, requiredResult] = yield Promise.all([
+                    combinedStatusLoopIteration(octokit, sha, statusRegex),
+                    requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns)
+                ]);
+                const [pendingStatuses, completedStatuses] = statusLoopResult;
+                // Fail immediately if any required checks have failed
+                if (requiredResult.failed.length > 0) {
+                    core.setFailed(`The following required check runs have failed: [${requiredResult.failed.join(', ')}].`);
+                    return;
+                }
+                // Check if there are still pending/missing checks or statuses
+                const hasPendingWork = pendingStatuses.length > 0 ||
+                    requiredResult.pending.length > 0 ||
+                    requiredResult.missing.length > 0;
+                if (hasPendingWork) {
+                    if (pendingStatuses.length > 0) {
+                        const statusNames = pendingStatuses.map(status => status.context);
+                        core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
+                    }
+                    if (requiredResult.pending.length > 0) {
+                        core.info(`The following required check runs are pending: [${requiredResult.pending.join(', ')}].`);
+                    }
+                    if (requiredResult.missing.length > 0) {
+                        core.info(`The following required check runs have not appeared yet: [${requiredResult.missing.join(', ')}].`);
+                    }
+                    core.info(`Waiting for ${pendingStatuses.length} statuses, ${requiredResult.pending.length} pending checks, and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
+                    yield wait(intervalSeconds);
+                    elapsedSeconds += intervalSeconds;
+                    continue;
+                }
+                // All required checks have completed - check for failed statuses
+                const failedStatuses = completedStatuses
+                    .filter(isStatusFailed)
+                    .map(status => status.context);
+                if (failedStatuses.length) {
+                    core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
+                }
+                core.info(`All ${requiredCheckRuns.size} required check runs and statuses have completed successfully.`);
+                return;
             }
-            const failedStatuses = completedStatuses
-                .filter(isStatusFailed)
-                .map(status => status.context);
-            const failedCheckRuns = completedCheckRuns
-                .filter(isCheckRunFailed)
-                .map(run => run.name);
-            if (failedStatuses.length) {
-                core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
+            else {
+                // Original regex mode
+                const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
+                    combinedStatusLoopIteration(octokit, sha, statusRegex),
+                    checkRunLoopIteration(octokit, sha, checkRunRegex)
+                ]);
+                const [pendingStatuses, completedStatuses] = statusLoopResult;
+                const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
+                if (pendingStatuses.length || pendingCheckRuns.length) {
+                    const statusNames = pendingStatuses.map(status => status.context);
+                    const checkRunNames = pendingCheckRuns.map(run => run.name);
+                    core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
+                    core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
+                    core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
+                    yield wait(intervalSeconds);
+                    elapsedSeconds += intervalSeconds;
+                    continue;
+                }
+                const failedStatuses = completedStatuses
+                    .filter(isStatusFailed)
+                    .map(status => status.context);
+                const failedCheckRuns = completedCheckRuns
+                    .filter(isCheckRunFailed)
+                    .map(run => run.name);
+                if (failedStatuses.length) {
+                    core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
+                }
+                if (failedCheckRuns.length) {
+                    core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
+                }
+                core.info('All statuses and check runs have completed.');
+                return;
             }
-            if (failedCheckRuns.length) {
-                core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
-            }
-            core.info('All statuses and check runs have completed.');
-            return;
         } while (elapsedSeconds < timeoutSeconds);
-        core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
+        if (useRequiredChecksMode) {
+            // Provide more specific timeout message for required checks mode
+            const result = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
+            if (result.missing.length > 0) {
+                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs never appeared: [${result.missing.join(', ')}].`);
+            }
+            else if (result.pending.length > 0) {
+                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs are still pending: [${result.pending.join(', ')}].`);
+            }
+            else {
+                core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
+            }
+        }
+        else {
+            core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
+        }
     });
 }
 function combinedStatusLoopIteration(octokit, sha, regex) {
-    var _a, e_1, _b, _c;
+    var _a, e_2, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
             owner: github.context.repo.owner,
@@ -170,19 +335,19 @@ function combinedStatusLoopIteration(octokit, sha, regex) {
                 }
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
                 if (!_d && !_a && (_b = combinedStatusIterator_1.return)) yield _b.call(combinedStatusIterator_1);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_2) throw e_2.error; }
         }
         core.info(`Found ${totalStatuses} total statuses, keeping ${filteredStatuses}.`);
         return [pendingStatuses, completedStatuses];
     });
 }
 function checkRunLoopIteration(octokit, sha, regex) {
-    var _a, e_2, _b, _c;
+    var _a, e_3, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
             owner: github.context.repo.owner,
@@ -194,8 +359,8 @@ function checkRunLoopIteration(octokit, sha, regex) {
         const pendingCheckRuns = [];
         const completedCheckRuns = [];
         try {
-            for (var _d = true, checkRunsIterator_1 = __asyncValues(checkRunsIterator), checkRunsIterator_1_1; checkRunsIterator_1_1 = yield checkRunsIterator_1.next(), _a = checkRunsIterator_1_1.done, !_a;) {
-                _c = checkRunsIterator_1_1.value;
+            for (var _d = true, checkRunsIterator_2 = __asyncValues(checkRunsIterator), checkRunsIterator_2_1; checkRunsIterator_2_1 = yield checkRunsIterator_2.next(), _a = checkRunsIterator_2_1.done, !_a;) {
+                _c = checkRunsIterator_2_1.value;
                 _d = false;
                 try {
                     const response = _c;
@@ -218,25 +383,28 @@ function checkRunLoopIteration(octokit, sha, regex) {
                 }
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
-                if (!_d && !_a && (_b = checkRunsIterator_1.return)) yield _b.call(checkRunsIterator_1);
+                if (!_d && !_a && (_b = checkRunsIterator_2.return)) yield _b.call(checkRunsIterator_2);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_3) throw e_3.error; }
         }
         core.info(`Found ${totalCheckRuns} total check runs, keeping ${filteredCheckRuns}.`);
         return [pendingCheckRuns, completedCheckRuns];
     });
 }
-try {
-    // eslint-disable-next-line github/no-then
-    main().catch(err => {
-        core.setFailed(err);
-    });
-}
-catch (err) {
-    core.setFailed(String(err));
+// Only run main() when not in test environment
+if (process.env.NODE_ENV !== 'test') {
+    try {
+        // eslint-disable-next-line github/no-then
+        main().catch(err => {
+            core.setFailed(err);
+        });
+    }
+    catch (err) {
+        core.setFailed(String(err));
+    }
 }
 
 

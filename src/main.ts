@@ -11,6 +11,116 @@ type CheckRun =
   RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
 type Octokit = ReturnType<typeof github.getOctokit>
 
+const DEFAULT_CHECK_RUN_REGEX = '^.*$'
+
+/**
+ * Parse a newline-separated list of required check run names into a Set.
+ * Trims whitespace and filters out empty lines.
+ */
+export function parseRequiredCheckRuns(input: string): Set<string> {
+  const trimmed = input.trim()
+  if (!trimmed) {
+    return new Set()
+  }
+
+  const names = trimmed
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+  return new Set(names)
+}
+
+/**
+ * Validate that required-check-runs and custom check-run-regex are not both provided.
+ */
+export function validateInputs(
+  checkRunRegexInput: string,
+  requiredCheckRuns: Set<string>
+): void {
+  const isCustomRegex = checkRunRegexInput !== DEFAULT_CHECK_RUN_REGEX
+  const hasRequiredChecks = requiredCheckRuns.size > 0
+
+  if (isCustomRegex && hasRequiredChecks) {
+    throw new Error(
+      'Cannot use both required-check-runs and a custom check-run-regex. ' +
+        'Please use one or the other.'
+    )
+  }
+}
+
+export interface RequiredCheckRunResult {
+  /** Checks that have completed successfully */
+  succeeded: string[]
+  /** Checks that are still pending/running */
+  pending: string[]
+  /** Checks that have failed */
+  failed: string[]
+  /** Checks that haven't appeared at all */
+  missing: string[]
+}
+
+/**
+ * Fetch check runs and categorize them by required check status.
+ */
+export async function requiredCheckRunLoopIteration(
+  octokit: Octokit,
+  sha: string,
+  requiredCheckRuns: Set<string>
+): Promise<RequiredCheckRunResult> {
+  const checkRunsIterator = octokit.paginate.iterator(
+    octokit.rest.checks.listForRef,
+    {
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      ref: sha
+    }
+  )
+
+  const foundChecks = new Map<
+    string,
+    {status: string; conclusion: string | null}
+  >()
+
+  for await (const response of checkRunsIterator) {
+    for (const checkRun of response.data) {
+      if (requiredCheckRuns.has(checkRun.name)) {
+        foundChecks.set(checkRun.name, {
+          status: checkRun.status,
+          conclusion: checkRun.conclusion
+        })
+      }
+    }
+  }
+
+  const succeeded: string[] = []
+  const pending: string[] = []
+  const failed: string[] = []
+  const missing: string[] = []
+
+  for (const name of requiredCheckRuns) {
+    const check = foundChecks.get(name)
+    if (!check) {
+      missing.push(name)
+    } else if (check.status !== 'completed') {
+      pending.push(name)
+    } else if (
+      check.conclusion === 'success' ||
+      check.conclusion === 'skipped' ||
+      check.conclusion === 'neutral'
+    ) {
+      succeeded.push(name)
+    } else {
+      failed.push(name)
+    }
+  }
+
+  core.info(
+    `Required checks - succeeded: ${succeeded.length}, pending: ${pending.length}, failed: ${failed.length}, missing: ${missing.length}`
+  )
+
+  return {succeeded, pending, failed, missing}
+}
+
 async function wait(seconds: number): Promise<void> {
   return new Promise<void>(resolve => {
     setTimeout(resolve, seconds * 1000)
@@ -39,16 +149,29 @@ async function main(): Promise<void> {
     core.getInput('timeout-seconds', {required: true})
   )
 
-  const statusRegex = new RegExp(
-    core.getInput('status-regex', {required: true})
-  )
-  const checkRunRegex = new RegExp(
-    core.getInput('check-run-regex', {required: true})
-  )
+  const statusRegexInput = core.getInput('status-regex', {required: true})
+  const checkRunRegexInput = core.getInput('check-run-regex', {required: true})
+  const requiredCheckRunsInput = core.getInput('required-check-runs')
+
+  const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput)
+
+  // Validate mutual exclusivity
+  validateInputs(checkRunRegexInput, requiredCheckRuns)
+
+  const statusRegex = new RegExp(statusRegexInput)
+  const checkRunRegex = new RegExp(checkRunRegexInput)
 
   const sha = getSHAFromContext(github.context)
 
   core.info(`Executing combined-status-check-action on SHA ${sha}.`)
+
+  if (requiredCheckRuns.size > 0) {
+    core.info(
+      `Using required-check-runs mode with ${
+        requiredCheckRuns.size
+      } required checks: [${[...requiredCheckRuns].join(', ')}]`
+    )
+  }
 
   const octokit = github.getOctokit(githubToken)
 
@@ -61,6 +184,7 @@ async function main(): Promise<void> {
     sha,
     statusRegex,
     checkRunRegex,
+    requiredCheckRuns,
     intervalSeconds,
     timeoutSeconds
   )
@@ -101,70 +225,172 @@ async function loop(
   sha: string,
   statusRegex: RegExp,
   checkRunRegex: RegExp,
+  requiredCheckRuns: Set<string>,
   intervalSeconds: number,
   timeoutSeconds: number
 ): Promise<void> {
   let elapsedSeconds = 0
+  const useRequiredChecksMode = requiredCheckRuns.size > 0
 
   core.info('Starting combined status check loop...')
 
   do {
-    const [statusLoopResult, checkRunLoopResult] = await Promise.all([
-      combinedStatusLoopIteration(octokit, sha, statusRegex),
-      checkRunLoopIteration(octokit, sha, checkRunRegex)
-    ])
+    if (useRequiredChecksMode) {
+      // Required checks mode: track specific check runs by name
+      const [statusLoopResult, requiredResult] = await Promise.all([
+        combinedStatusLoopIteration(octokit, sha, statusRegex),
+        requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns)
+      ])
 
-    const [pendingStatuses, completedStatuses] = statusLoopResult
-    const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult
+      const [pendingStatuses, completedStatuses] = statusLoopResult
 
-    if (pendingStatuses.length || pendingCheckRuns.length) {
-      const statusNames = pendingStatuses.map(status => status.context)
-      const checkRunNames = pendingCheckRuns.map(run => run.name)
+      // Fail immediately if any required checks have failed
+      if (requiredResult.failed.length > 0) {
+        core.setFailed(
+          `The following required check runs have failed: [${requiredResult.failed.join(
+            ', '
+          )}].`
+        )
+        return
+      }
+
+      // Check if there are still pending/missing checks or statuses
+      const hasPendingWork =
+        pendingStatuses.length > 0 ||
+        requiredResult.pending.length > 0 ||
+        requiredResult.missing.length > 0
+
+      if (hasPendingWork) {
+        if (pendingStatuses.length > 0) {
+          const statusNames = pendingStatuses.map(status => status.context)
+          core.info(
+            `The following statuses are pending: [${statusNames.join(', ')}].`
+          )
+        }
+        if (requiredResult.pending.length > 0) {
+          core.info(
+            `The following required check runs are pending: [${requiredResult.pending.join(
+              ', '
+            )}].`
+          )
+        }
+        if (requiredResult.missing.length > 0) {
+          core.info(
+            `The following required check runs have not appeared yet: [${requiredResult.missing.join(
+              ', '
+            )}].`
+          )
+        }
+
+        core.info(
+          `Waiting for ${pendingStatuses.length} statuses, ${requiredResult.pending.length} pending checks, and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`
+        )
+
+        await wait(intervalSeconds)
+        elapsedSeconds += intervalSeconds
+        continue
+      }
+
+      // All required checks have completed - check for failed statuses
+      const failedStatuses = completedStatuses
+        .filter(isStatusFailed)
+        .map(status => status.context)
+
+      if (failedStatuses.length) {
+        core.setFailed(
+          `The following statuses have failed: [${failedStatuses.join(', ')}].`
+        )
+      }
 
       core.info(
-        `The following statuses are pending: [${statusNames.join(', ')}].`
+        `All ${requiredCheckRuns.size} required check runs and statuses have completed successfully.`
       )
-      core.info(
-        `The following check runs are pending: [${checkRunNames.join(', ')}].`
-      )
+      return
+    } else {
+      // Original regex mode
+      const [statusLoopResult, checkRunLoopResult] = await Promise.all([
+        combinedStatusLoopIteration(octokit, sha, statusRegex),
+        checkRunLoopIteration(octokit, sha, checkRunRegex)
+      ])
 
-      core.info(
-        `Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`
-      )
+      const [pendingStatuses, completedStatuses] = statusLoopResult
+      const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult
 
-      await wait(intervalSeconds)
+      if (pendingStatuses.length || pendingCheckRuns.length) {
+        const statusNames = pendingStatuses.map(status => status.context)
+        const checkRunNames = pendingCheckRuns.map(run => run.name)
 
-      elapsedSeconds += intervalSeconds
+        core.info(
+          `The following statuses are pending: [${statusNames.join(', ')}].`
+        )
+        core.info(
+          `The following check runs are pending: [${checkRunNames.join(', ')}].`
+        )
 
-      continue
+        core.info(
+          `Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`
+        )
+
+        await wait(intervalSeconds)
+
+        elapsedSeconds += intervalSeconds
+
+        continue
+      }
+
+      const failedStatuses = completedStatuses
+        .filter(isStatusFailed)
+        .map(status => status.context)
+
+      const failedCheckRuns = completedCheckRuns
+        .filter(isCheckRunFailed)
+        .map(run => run.name)
+
+      if (failedStatuses.length) {
+        core.setFailed(
+          `The following statuses have failed: [${failedStatuses.join(', ')}].`
+        )
+      }
+
+      if (failedCheckRuns.length) {
+        core.setFailed(
+          `The following check runs have failed: [${failedCheckRuns.join(
+            ', '
+          )}].`
+        )
+      }
+
+      core.info('All statuses and check runs have completed.')
+
+      return
     }
-
-    const failedStatuses = completedStatuses
-      .filter(isStatusFailed)
-      .map(status => status.context)
-
-    const failedCheckRuns = completedCheckRuns
-      .filter(isCheckRunFailed)
-      .map(run => run.name)
-
-    if (failedStatuses.length) {
-      core.setFailed(
-        `The following statuses have failed: [${failedStatuses.join(', ')}].`
-      )
-    }
-
-    if (failedCheckRuns.length) {
-      core.setFailed(
-        `The following check runs have failed: [${failedCheckRuns.join(', ')}].`
-      )
-    }
-
-    core.info('All statuses and check runs have completed.')
-
-    return
   } while (elapsedSeconds < timeoutSeconds)
 
-  core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`)
+  if (useRequiredChecksMode) {
+    // Provide more specific timeout message for required checks mode
+    const result = await requiredCheckRunLoopIteration(
+      octokit,
+      sha,
+      requiredCheckRuns
+    )
+    if (result.missing.length > 0) {
+      core.setFailed(
+        `Action timed out after ${timeoutSeconds} seconds. The following required check runs never appeared: [${result.missing.join(
+          ', '
+        )}].`
+      )
+    } else if (result.pending.length > 0) {
+      core.setFailed(
+        `Action timed out after ${timeoutSeconds} seconds. The following required check runs are still pending: [${result.pending.join(
+          ', '
+        )}].`
+      )
+    } else {
+      core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`)
+    }
+  } else {
+    core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`)
+  }
 }
 
 async function combinedStatusLoopIteration(
@@ -257,11 +483,14 @@ async function checkRunLoopIteration(
   return [pendingCheckRuns, completedCheckRuns]
 }
 
-try {
-  // eslint-disable-next-line github/no-then
-  main().catch(err => {
-    core.setFailed(err)
-  })
-} catch (err) {
-  core.setFailed(String(err))
+// Only run main() when not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  try {
+    // eslint-disable-next-line github/no-then
+    main().catch(err => {
+      core.setFailed(err)
+    })
+  } catch (err) {
+    core.setFailed(String(err))
+  }
 }
