@@ -205,45 +205,29 @@ function loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, inter
         core.info('Starting combined status check loop...');
         do {
             if (useRequiredChecksMode) {
-                // Required checks mode: track specific check runs by name
-                const [statusLoopResult, requiredResult] = yield Promise.all([
-                    combinedStatusLoopIteration(octokit, sha, statusRegex),
-                    requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns)
-                ]);
-                const [pendingStatuses, completedStatuses] = statusLoopResult;
+                // Required checks mode: only track specific check runs by name
+                // Skip status API call since we only care about check runs
+                const requiredResult = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
                 // Fail immediately if any required checks have failed
                 if (requiredResult.failed.length > 0) {
                     core.setFailed(`The following required check runs have failed: [${requiredResult.failed.join(', ')}].`);
                     return;
                 }
-                // Check if there are still pending/missing checks or statuses
-                const hasPendingWork = pendingStatuses.length > 0 ||
-                    requiredResult.pending.length > 0 ||
-                    requiredResult.missing.length > 0;
+                // Check if there are still pending/missing checks
+                const hasPendingWork = requiredResult.pending.length > 0 || requiredResult.missing.length > 0;
                 if (hasPendingWork) {
-                    if (pendingStatuses.length > 0) {
-                        const statusNames = pendingStatuses.map(status => status.context);
-                        core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
-                    }
                     if (requiredResult.pending.length > 0) {
                         core.info(`The following required check runs are pending: [${requiredResult.pending.join(', ')}].`);
                     }
                     if (requiredResult.missing.length > 0) {
                         core.info(`The following required check runs have not appeared yet: [${requiredResult.missing.join(', ')}].`);
                     }
-                    core.info(`Waiting for ${pendingStatuses.length} statuses, ${requiredResult.pending.length} pending checks, and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
+                    core.info(`Waiting for ${requiredResult.pending.length} pending checks and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
                     yield wait(intervalSeconds);
                     elapsedSeconds += intervalSeconds;
                     continue;
                 }
-                // All required checks have completed - check for failed statuses
-                const failedStatuses = completedStatuses
-                    .filter(isStatusFailed)
-                    .map(status => status.context);
-                if (failedStatuses.length) {
-                    core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
-                }
-                core.info(`All ${requiredCheckRuns.size} required check runs and statuses have completed successfully.`);
+                core.info(`All ${requiredCheckRuns.size} required check runs have completed successfully.`);
                 return;
             }
             else {
