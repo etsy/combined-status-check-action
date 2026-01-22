@@ -24,7 +24,7 @@ export function parseRequiredCheckRuns(input: string): Set<string> {
   }
 
   const names = trimmed
-    .split('\n')
+    .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length > 0)
   return new Set(names)
