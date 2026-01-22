@@ -99,6 +99,9 @@ function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
             repo: github.context.repo.repo,
             ref: sha
         });
+        // Track check runs by name, keeping only the most recent (highest ID) for each name.
+        // GitHub's Check Runs API can return multiple check runs with the same name
+        // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
         const foundChecks = new Map();
         try {
             for (var _d = true, checkRunsIterator_1 = __asyncValues(checkRunsIterator), checkRunsIterator_1_1; checkRunsIterator_1_1 = yield checkRunsIterator_1.next(), _a = checkRunsIterator_1_1.done, !_a;) {
@@ -108,10 +111,15 @@ function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
                     const response = _c;
                     for (const checkRun of response.data) {
                         if (requiredCheckRuns.has(checkRun.name)) {
-                            foundChecks.set(checkRun.name, {
-                                status: checkRun.status,
-                                conclusion: checkRun.conclusion
-                            });
+                            const existing = foundChecks.get(checkRun.name);
+                            // Only update if this check run has a higher ID (more recent)
+                            if (!existing || checkRun.id > existing.id) {
+                                foundChecks.set(checkRun.name, {
+                                    id: checkRun.id,
+                                    status: checkRun.status,
+                                    conclusion: checkRun.conclusion
+                                });
+                            }
                         }
                     }
                 }
@@ -349,9 +357,10 @@ function checkRunLoopIteration(octokit, sha, regex) {
             ref: sha
         });
         let totalCheckRuns = 0;
-        let filteredCheckRuns = 0;
-        const pendingCheckRuns = [];
-        const completedCheckRuns = [];
+        // Track check runs by name, keeping only the most recent (highest ID) for each name.
+        // GitHub's Check Runs API can return multiple check runs with the same name
+        // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
+        const checkRunsByName = new Map();
         try {
             for (var _d = true, checkRunsIterator_2 = __asyncValues(checkRunsIterator), checkRunsIterator_2_1; checkRunsIterator_2_1 = yield checkRunsIterator_2.next(), _a = checkRunsIterator_2_1.done, !_a;) {
                 _c = checkRunsIterator_2_1.value;
@@ -363,12 +372,10 @@ function checkRunLoopIteration(octokit, sha, regex) {
                         if (!regex.test(checkRun.name)) {
                             continue;
                         }
-                        filteredCheckRuns++;
-                        if (isCheckRunCompleted(checkRun)) {
-                            completedCheckRuns.push(checkRun);
-                        }
-                        else {
-                            pendingCheckRuns.push(checkRun);
+                        const existing = checkRunsByName.get(checkRun.name);
+                        // Only update if this check run has a higher ID (more recent)
+                        if (!existing || checkRun.id > existing.id) {
+                            checkRunsByName.set(checkRun.name, checkRun);
                         }
                     }
                 }
@@ -384,7 +391,17 @@ function checkRunLoopIteration(octokit, sha, regex) {
             }
             finally { if (e_3) throw e_3.error; }
         }
-        core.info(`Found ${totalCheckRuns} total check runs, keeping ${filteredCheckRuns}.`);
+        const pendingCheckRuns = [];
+        const completedCheckRuns = [];
+        for (const checkRun of checkRunsByName.values()) {
+            if (isCheckRunCompleted(checkRun)) {
+                completedCheckRuns.push(checkRun);
+            }
+            else {
+                pendingCheckRuns.push(checkRun);
+            }
+        }
+        core.info(`Found ${totalCheckRuns} total check runs, keeping ${checkRunsByName.size} unique.`);
         return [pendingCheckRuns, completedCheckRuns];
     });
 }

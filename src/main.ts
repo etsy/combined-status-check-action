@@ -91,18 +91,26 @@ export async function requiredCheckRunLoopIteration(
     }
   )
 
+  // Track check runs by name, keeping only the most recent (highest ID) for each name.
+  // GitHub's Check Runs API can return multiple check runs with the same name
+  // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
   const foundChecks = new Map<
     string,
-    {status: string; conclusion: string | null}
+    {id: number; status: string; conclusion: string | null}
   >()
 
   for await (const response of checkRunsIterator) {
     for (const checkRun of response.data) {
       if (requiredCheckRuns.has(checkRun.name)) {
-        foundChecks.set(checkRun.name, {
-          status: checkRun.status,
-          conclusion: checkRun.conclusion
-        })
+        const existing = foundChecks.get(checkRun.name)
+        // Only update if this check run has a higher ID (more recent)
+        if (!existing || checkRun.id > existing.id) {
+          foundChecks.set(checkRun.name, {
+            id: checkRun.id,
+            status: checkRun.status,
+            conclusion: checkRun.conclusion
+          })
+        }
       }
     }
   }
@@ -449,10 +457,11 @@ async function checkRunLoopIteration(
   )
 
   let totalCheckRuns = 0
-  let filteredCheckRuns = 0
 
-  const pendingCheckRuns: PendingCheckRun[] = []
-  const completedCheckRuns: CompletedCheckRun[] = []
+  // Track check runs by name, keeping only the most recent (highest ID) for each name.
+  // GitHub's Check Runs API can return multiple check runs with the same name
+  // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
+  const checkRunsByName = new Map<string, CheckRun>()
 
   for await (const response of checkRunsIterator) {
     totalCheckRuns += response.data.length
@@ -462,18 +471,27 @@ async function checkRunLoopIteration(
         continue
       }
 
-      filteredCheckRuns++
-
-      if (isCheckRunCompleted(checkRun)) {
-        completedCheckRuns.push(checkRun)
-      } else {
-        pendingCheckRuns.push(checkRun)
+      const existing = checkRunsByName.get(checkRun.name)
+      // Only update if this check run has a higher ID (more recent)
+      if (!existing || checkRun.id > existing.id) {
+        checkRunsByName.set(checkRun.name, checkRun)
       }
     }
   }
 
+  const pendingCheckRuns: PendingCheckRun[] = []
+  const completedCheckRuns: CompletedCheckRun[] = []
+
+  for (const checkRun of checkRunsByName.values()) {
+    if (isCheckRunCompleted(checkRun)) {
+      completedCheckRuns.push(checkRun)
+    } else {
+      pendingCheckRuns.push(checkRun)
+    }
+  }
+
   core.info(
-    `Found ${totalCheckRuns} total check runs, keeping ${filteredCheckRuns}.`
+    `Found ${totalCheckRuns} total check runs, keeping ${checkRunsByName.size} unique.`
   )
 
   return [pendingCheckRuns, completedCheckRuns]
