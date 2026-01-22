@@ -49,7 +49,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
-const DEFAULT_CHECK_RUN_REGEX = '^.*$';
+const DEFAULT_REGEX = '^.*$';
 /**
  * Parse a newline-separated list of required check run names into a Set.
  * Trims whitespace and filters out empty lines.
@@ -67,12 +67,22 @@ function parseRequiredCheckRuns(input) {
 }
 exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
 /**
- * Validate that required-check-runs and custom check-run-regex are not both provided.
+ * Validate that required-check-runs is not used with custom regex inputs.
+ * Required checks mode only monitors specific check runs, not statuses,
+ * so custom regex filters don't apply.
  */
-function validateInputs(checkRunRegexInput, requiredCheckRuns) {
-    const isCustomRegex = checkRunRegexInput !== DEFAULT_CHECK_RUN_REGEX;
+function validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns) {
     const hasRequiredChecks = requiredCheckRuns.size > 0;
-    if (isCustomRegex && hasRequiredChecks) {
+    if (!hasRequiredChecks) {
+        return;
+    }
+    const isCustomStatusRegex = statusRegexInput !== DEFAULT_REGEX;
+    const isCustomCheckRunRegex = checkRunRegexInput !== DEFAULT_REGEX;
+    if (isCustomStatusRegex) {
+        throw new Error('Cannot use both required-check-runs and a custom status-regex. ' +
+            'Required checks mode only monitors check runs, not commit statuses.');
+    }
+    if (isCustomCheckRunRegex) {
         throw new Error('Cannot use both required-check-runs and a custom check-run-regex. ' +
             'Please use one or the other.');
     }
@@ -170,7 +180,7 @@ function main() {
         const requiredCheckRunsInput = core.getInput('required-check-runs');
         const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
         // Validate mutual exclusivity
-        validateInputs(checkRunRegexInput, requiredCheckRuns);
+        validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns);
         const statusRegex = new RegExp(statusRegexInput);
         const checkRunRegex = new RegExp(checkRunRegexInput);
         const sha = getSHAFromContext(github.context);

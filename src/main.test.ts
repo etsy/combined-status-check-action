@@ -59,23 +59,39 @@ describe('parseRequiredCheckRuns', () => {
 describe('validateInputs', () => {
   const DEFAULT_REGEX = '^.*$'
 
-  it('allows empty required checks with default regex', () => {
-    expect(() => validateInputs(DEFAULT_REGEX, new Set())).not.toThrow()
-  })
-
-  it('allows empty required checks with custom regex', () => {
-    expect(() => validateInputs('^test-.*$', new Set())).not.toThrow()
-  })
-
-  it('allows required checks with default regex', () => {
+  it('allows empty required checks with default regexes', () => {
     expect(() =>
-      validateInputs(DEFAULT_REGEX, new Set(['build', 'test']))
+      validateInputs(DEFAULT_REGEX, DEFAULT_REGEX, new Set())
     ).not.toThrow()
   })
 
-  it('throws when both custom regex and required checks are provided', () => {
+  it('allows empty required checks with custom status regex', () => {
     expect(() =>
-      validateInputs('^test-.*$', new Set(['build', 'test']))
+      validateInputs('^test-.*$', DEFAULT_REGEX, new Set())
+    ).not.toThrow()
+  })
+
+  it('allows empty required checks with custom check-run regex', () => {
+    expect(() =>
+      validateInputs(DEFAULT_REGEX, '^test-.*$', new Set())
+    ).not.toThrow()
+  })
+
+  it('allows required checks with default regexes', () => {
+    expect(() =>
+      validateInputs(DEFAULT_REGEX, DEFAULT_REGEX, new Set(['build', 'test']))
+    ).not.toThrow()
+  })
+
+  it('throws when custom status-regex and required checks are provided', () => {
+    expect(() =>
+      validateInputs('^test-.*$', DEFAULT_REGEX, new Set(['build', 'test']))
+    ).toThrow('Cannot use both required-check-runs and a custom status-regex')
+  })
+
+  it('throws when custom check-run-regex and required checks are provided', () => {
+    expect(() =>
+      validateInputs(DEFAULT_REGEX, '^test-.*$', new Set(['build', 'test']))
     ).toThrow(
       'Cannot use both required-check-runs and a custom check-run-regex'
     )

@@ -11,7 +11,7 @@ type CheckRun =
   RestEndpointMethodTypes['checks']['listForRef']['response']['data']['check_runs'][0]
 type Octokit = ReturnType<typeof github.getOctokit>
 
-const DEFAULT_CHECK_RUN_REGEX = '^.*$'
+const DEFAULT_REGEX = '^.*$'
 
 /**
  * Parse a newline-separated list of required check run names into a Set.
@@ -31,16 +31,31 @@ export function parseRequiredCheckRuns(input: string): Set<string> {
 }
 
 /**
- * Validate that required-check-runs and custom check-run-regex are not both provided.
+ * Validate that required-check-runs is not used with custom regex inputs.
+ * Required checks mode only monitors specific check runs, not statuses,
+ * so custom regex filters don't apply.
  */
 export function validateInputs(
+  statusRegexInput: string,
   checkRunRegexInput: string,
   requiredCheckRuns: Set<string>
 ): void {
-  const isCustomRegex = checkRunRegexInput !== DEFAULT_CHECK_RUN_REGEX
   const hasRequiredChecks = requiredCheckRuns.size > 0
+  if (!hasRequiredChecks) {
+    return
+  }
 
-  if (isCustomRegex && hasRequiredChecks) {
+  const isCustomStatusRegex = statusRegexInput !== DEFAULT_REGEX
+  const isCustomCheckRunRegex = checkRunRegexInput !== DEFAULT_REGEX
+
+  if (isCustomStatusRegex) {
+    throw new Error(
+      'Cannot use both required-check-runs and a custom status-regex. ' +
+        'Required checks mode only monitors check runs, not commit statuses.'
+    )
+  }
+
+  if (isCustomCheckRunRegex) {
     throw new Error(
       'Cannot use both required-check-runs and a custom check-run-regex. ' +
         'Please use one or the other.'
@@ -156,7 +171,7 @@ async function main(): Promise<void> {
   const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput)
 
   // Validate mutual exclusivity
-  validateInputs(checkRunRegexInput, requiredCheckRuns)
+  validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns)
 
   const statusRegex = new RegExp(statusRegexInput)
   const checkRunRegex = new RegExp(checkRunRegexInput)
