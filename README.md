@@ -32,6 +32,6 @@ This mode:
 - Uses exact name matching (not regex)
 - Fails if any required check never appears (after timeout)
 - Fails immediately if any required check fails
-- Cannot be combined with a custom `check-run-regex`
+- Cannot be combined with a custom `check-run-regex` or `status-regex`
 
 See [`action.yml`](./action.yml) for all available options.

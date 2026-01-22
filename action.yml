@@ -33,7 +33,7 @@ inputs:
   required-check-runs:
     description: >
       Newline-separated list of check run names that must all appear and succeed.
-      Uses exact name matching. Cannot be used with a custom check-run-regex.
+      Uses exact name matching. Cannot be used with a custom check-run-regex or status-regex.
     default: ''
 
 runs:
