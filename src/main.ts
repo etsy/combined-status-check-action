@@ -45,17 +45,14 @@ export function validateInputs(
     return
   }
 
-  const isCustomStatusRegex = statusRegexInput !== DEFAULT_REGEX
-  const isCustomCheckRunRegex = checkRunRegexInput !== DEFAULT_REGEX
-
-  if (isCustomStatusRegex) {
+  if (statusRegexInput !== DEFAULT_REGEX) {
     throw new Error(
       'Cannot use both required-check-runs and a custom status-regex. ' +
         'Required checks mode only monitors check runs, not commit statuses.'
     )
   }
 
-  if (isCustomCheckRunRegex) {
+  if (checkRunRegexInput !== DEFAULT_REGEX) {
     throw new Error(
       'Cannot use both required-check-runs and a custom check-run-regex. ' +
         'Please use one or the other.'
