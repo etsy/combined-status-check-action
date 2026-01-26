@@ -170,7 +170,7 @@ export function getBranchFromContext(ctx: typeof github.context): string | null 
   }
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const githubToken = core.getInput('token', {required: true})
   const initialDelaySeconds: number = parseInt(
     core.getInput('initial-delay-seconds', {required: true})
