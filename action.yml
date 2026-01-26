@@ -36,6 +36,13 @@ inputs:
       Uses exact name matching. Cannot be used with a custom check-run-regex or status-regex.
     default: ''
 
+  auto-pass-branch-prefix:
+    description: >
+      Branch name prefix that triggers automatic success without checking status checks.
+      If the branch name starts with this prefix (case-sensitive), the action immediately
+      passes. Leave empty to disable this feature.
+    default: ''
+
 runs:
   using: 'node16'
   main: 'dist/index.js'
