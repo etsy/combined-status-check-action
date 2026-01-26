@@ -1,7 +1,8 @@
 import {
   parseRequiredCheckRuns,
   validateInputs,
-  RequiredCheckRunResult
+  RequiredCheckRunResult,
+  getBranchFromContext
 } from './main'
 
 describe('parseRequiredCheckRuns', () => {
@@ -115,5 +116,105 @@ describe('RequiredCheckRunResult interface', () => {
     expect(result.pending).toEqual(['check2'])
     expect(result.failed).toEqual(['check3'])
     expect(result.missing).toEqual(['check4'])
+  })
+})
+
+describe('getBranchFromContext', () => {
+  it('should extract branch from pull_request event', () => {
+    const mockContext = {
+      eventName: 'pull_request',
+      payload: {
+        pull_request: {
+          head: {
+            ref: 'feature/test-branch'
+          }
+        }
+      }
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe('feature/test-branch')
+  })
+
+  it('should extract branch from push event with refs/heads/ prefix', () => {
+    const mockContext = {
+      eventName: 'push',
+      ref: 'refs/heads/main',
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe('main')
+  })
+
+  it('should extract branch with slashes in name', () => {
+    const mockContext = {
+      eventName: 'push',
+      ref: 'refs/heads/feature/my-branch',
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe('feature/my-branch')
+  })
+
+  it('should return null for tag events', () => {
+    const mockContext = {
+      eventName: 'push',
+      ref: 'refs/tags/v1.0.0',
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe(null)
+  })
+
+  it('should return null when ref is undefined', () => {
+    const mockContext = {
+      eventName: 'workflow_dispatch',
+      ref: undefined,
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe(null)
+  })
+
+  it('should return null for release events', () => {
+    const mockContext = {
+      eventName: 'release',
+      ref: 'refs/tags/v2.0.0',
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe(null)
+  })
+
+  it('should handle grimoire- prefix branch from pull request', () => {
+    const mockContext = {
+      eventName: 'pull_request',
+      payload: {
+        pull_request: {
+          head: {
+            ref: 'grimoire-test-123'
+          }
+        }
+      }
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe('grimoire-test-123')
+  })
+
+  it('should handle grimoire- prefix branch from push', () => {
+    const mockContext = {
+      eventName: 'push',
+      ref: 'refs/heads/grimoire-auto-branch',
+      payload: {}
+    } as any
+
+    const result = getBranchFromContext(mockContext)
+    expect(result).toBe('grimoire-auto-branch')
   })
 })
