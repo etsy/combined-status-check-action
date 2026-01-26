@@ -3,14 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "description": "TypeScript template action",
-  "main": "lib/main.js",
+  "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
     "format": "prettier --write **/*.ts",
     "format-check": "prettier --check **/*.ts",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
-    "package": "ncc build --source-map --license licenses.txt",
+    "package": "ncc build lib/index.js --source-map --license licenses.txt",
     "all": "npm run build && npm run format && npm run lint && npm run test && npm run package"
   },
   "repository": {

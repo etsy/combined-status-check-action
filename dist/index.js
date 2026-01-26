@@ -1,7 +1,502 @@
 require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 3109:
+/***/ 5976:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.handleCheckRunCompleted = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const github = __importStar(__nccwpck_require__(5438));
+const context_1 = __nccwpck_require__(6570);
+const check_run_manager_1 = __nccwpck_require__(1459);
+const check_evaluator_1 = __nccwpck_require__(8492);
+/**
+ * Handle check_run.completed events.
+ *
+ * This handler:
+ * 1. Filters out self-triggers (our own check run completing)
+ * 2. Finds PRs associated with the check run's SHA
+ * 3. For each PR, finds our in-progress check run and re-evaluates
+ * 4. Updates our check run with the new status
+ */
+function handleCheckRunCompleted(octokit, inputs) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const sha = (0, context_1.getSHAFromContext)(github.context);
+        const payload = github.context.payload;
+        const completedCheckName = payload.check_run.name;
+        core.info(`Handling check_run.completed event for "${completedCheckName}" on SHA ${sha}`);
+        // Self-trigger prevention: skip if this is our own check run
+        if ((0, context_1.isSelfTrigger)(github.context, inputs.checkRunName)) {
+            core.info(`Skipping: This is our own check run "${inputs.checkRunName}" completing.`);
+            return;
+        }
+        // Find PRs associated with this SHA
+        const pullRequests = yield (0, context_1.getPullRequestsForCheckRun)(octokit, github.context);
+        if (pullRequests.length === 0) {
+            core.info(`No pull requests found for SHA ${sha}. Skipping evaluation.`);
+            return;
+        }
+        core.info(`Found ${pullRequests.length} pull request(s) for SHA ${sha}: [${pullRequests
+            .map(pr => `#${pr.number}`)
+            .join(', ')}]`);
+        // Process each PR
+        for (const pr of pullRequests) {
+            yield processCheckRunForPR(octokit, inputs, pr.headSha, pr.number);
+        }
+    });
+}
+exports.handleCheckRunCompleted = handleCheckRunCompleted;
+/**
+ * Process a check_run.completed event for a specific PR.
+ */
+function processCheckRunForPR(octokit, inputs, sha, prNumber) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.info(`Processing check run completion for PR #${prNumber} (SHA: ${sha})`);
+        // Find our check run for this SHA
+        const ourCheckRun = yield (0, check_run_manager_1.findOurCheckRun)(octokit, sha, inputs.checkRunName);
+        if (!ourCheckRun) {
+            core.info(`No check run "${inputs.checkRunName}" found for SHA ${sha}. ` +
+                `This may be a check run for a commit that we haven't processed yet.`);
+            return;
+        }
+        if (!ourCheckRun.metadata) {
+            core.warning(`Check run "${inputs.checkRunName}" (ID: ${ourCheckRun.id}) has no metadata. ` +
+                `Cannot evaluate without configuration.`);
+            return;
+        }
+        // Check if our check run is already completed
+        const checkRunsResponse = yield octokit.rest.checks.listForRef({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            ref: sha,
+            check_name: inputs.checkRunName
+        });
+        const currentCheckRun = checkRunsResponse.data.check_runs.find(r => r.id === ourCheckRun.id);
+        if (currentCheckRun && currentCheckRun.status === 'completed') {
+            core.info(`Check run "${inputs.checkRunName}" (ID: ${ourCheckRun.id}) is already completed. Skipping.`);
+            return;
+        }
+        // Re-evaluate all checks
+        core.info(`Re-evaluating checks for "${inputs.checkRunName}" (ID: ${ourCheckRun.id})`);
+        const result = yield (0, check_evaluator_1.evaluateChecks)(octokit, sha, ourCheckRun.metadata, inputs.checkRunName);
+        // Update our check run
+        yield (0, check_run_manager_1.updateCheckRun)(octokit, ourCheckRun.id, result, ourCheckRun.metadata);
+        if (result.conclusion === 'success') {
+            core.info(`All checks passed for PR #${prNumber}`);
+        }
+        else if (result.conclusion === 'failure') {
+            core.info(`Some checks failed for PR #${prNumber}: ${result.summary}`);
+            // Note: We don't call core.setFailed here because this action run
+            // should succeed - we're just updating the check run status
+        }
+        else if (result.conclusion === 'timed_out') {
+            core.info(`Checks timed out for PR #${prNumber}: ${result.summary}`);
+        }
+        else {
+            core.info(`Still waiting for checks for PR #${prNumber}: ${result.summary}`);
+        }
+    });
+}
+
+
+/***/ }),
+
+/***/ 5451:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.handlePullRequest = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const github = __importStar(__nccwpck_require__(5438));
+const context_1 = __nccwpck_require__(6570);
+const check_run_manager_1 = __nccwpck_require__(1459);
+const check_evaluator_1 = __nccwpck_require__(8492);
+/**
+ * Handle pull_request events (opened, synchronize, reopened).
+ *
+ * This handler:
+ * 1. Checks for auto-pass branch prefix
+ * 2. Creates an "in_progress" check run with metadata
+ * 3. Optionally performs initial evaluation (for cases where checks already exist)
+ */
+function handlePullRequest(octokit, inputs) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const sha = (0, context_1.getSHAFromContext)(github.context);
+        const branchName = (0, context_1.getBranchFromContext)(github.context);
+        core.info(`Handling pull_request event for SHA ${sha}`);
+        // Check for auto-pass branch prefix
+        if (inputs.autoPassBranchPrefix && branchName) {
+            core.info(`Detected branch: ${branchName}`);
+            if (branchName.startsWith(inputs.autoPassBranchPrefix)) {
+                core.info(`Branch '${branchName}' starts with auto-pass prefix '${inputs.autoPassBranchPrefix}'. ` +
+                    `Creating successful check run without evaluating other checks.`);
+                // Create a successful check run immediately
+                yield createAutoPassCheckRun(octokit, sha, inputs, branchName);
+                return;
+            }
+            else {
+                core.info(`Branch '${branchName}' does not match auto-pass prefix '${inputs.autoPassBranchPrefix}'. ` +
+                    `Proceeding with normal check evaluation.`);
+            }
+        }
+        else if (inputs.autoPassBranchPrefix && !branchName) {
+            core.info(`Could not determine branch name for event type '${github.context.eventName}'. ` +
+                `Proceeding with normal check evaluation.`);
+        }
+        // Determine the evaluation mode
+        const useRequiredChecksMode = inputs.requiredCheckRuns.size > 0;
+        if (useRequiredChecksMode) {
+            core.info(`Using required-check-runs mode with ${inputs.requiredCheckRuns.size} required checks: [${[...inputs.requiredCheckRuns].join(', ')}]`);
+        }
+        else {
+            core.info('Using regex mode for check evaluation');
+        }
+        // Create metadata for the check run
+        const metadata = {
+            startTime: Date.now(),
+            timeoutSeconds: inputs.timeoutSeconds,
+            mode: useRequiredChecksMode ? 'required-check-runs' : 'regex',
+            requiredChecks: useRequiredChecksMode
+                ? [...inputs.requiredCheckRuns]
+                : undefined,
+            statusRegex: useRequiredChecksMode ? undefined : inputs.statusRegex,
+            checkRunRegex: useRequiredChecksMode ? undefined : inputs.checkRunRegex
+        };
+        // Create the check run
+        const checkRunId = yield (0, check_run_manager_1.createCheckRun)(octokit, sha, inputs.checkRunName, metadata);
+        // Perform initial evaluation
+        // This handles cases where checks from a previous push already exist
+        core.info('Performing initial evaluation...');
+        const result = yield (0, check_evaluator_1.evaluateChecks)(octokit, sha, metadata, inputs.checkRunName);
+        if (result.conclusion !== 'in_progress') {
+            // We have a final result already
+            yield (0, check_run_manager_1.updateCheckRun)(octokit, checkRunId, result, metadata);
+            core.info(`Initial evaluation complete: ${result.conclusion}`);
+            if (result.conclusion === 'failure' || result.conclusion === 'timed_out') {
+                core.setFailed(result.summary);
+            }
+        }
+        else {
+            // Still waiting for checks
+            yield (0, check_run_manager_1.updateCheckRun)(octokit, checkRunId, result, metadata);
+            core.info(`Initial evaluation: still waiting. Check run will be updated when checks complete.`);
+        }
+    });
+}
+exports.handlePullRequest = handlePullRequest;
+/**
+ * Create a successful check run for auto-pass branches.
+ */
+function createAutoPassCheckRun(octokit, sha, inputs, branchName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        yield octokit.rest.checks.create({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            name: inputs.checkRunName,
+            head_sha: sha,
+            status: 'completed',
+            conclusion: 'success',
+            started_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+            output: {
+                title: 'Auto-passed',
+                summary: `Branch '${branchName}' matches auto-pass prefix '${inputs.autoPassBranchPrefix}'`,
+                text: `This check was automatically passed because the branch name starts with the configured auto-pass prefix.`
+            }
+        });
+        core.info(`Created auto-pass check run for branch '${branchName}'`);
+    });
+}
+
+
+/***/ }),
+
+/***/ 5558:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.handleScheduledTimeout = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const check_run_manager_1 = __nccwpck_require__(1459);
+const check_evaluator_1 = __nccwpck_require__(8492);
+/**
+ * Handle scheduled events for timeout enforcement.
+ *
+ * This handler:
+ * 1. Lists all open PRs
+ * 2. For each PR, finds our in-progress check runs
+ * 3. Checks if any have exceeded their timeout
+ * 4. Marks timed-out checks as completed with 'timed_out' conclusion
+ *
+ * This acts as a safety net for cases where no check_run.completed events
+ * fire (e.g., all checks are stuck in pending state).
+ */
+function handleScheduledTimeout(octokit, inputs) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.info('Handling scheduled timeout check...');
+        // Find all in-progress check runs
+        const inProgressRuns = yield (0, check_run_manager_1.findInProgressCheckRuns)(octokit, inputs.checkRunName);
+        if (inProgressRuns.length === 0) {
+            core.info('No in-progress check runs found. Nothing to do.');
+            return;
+        }
+        core.info(`Found ${inProgressRuns.length} in-progress check run(s)`);
+        let timedOutCount = 0;
+        let stillWaitingCount = 0;
+        for (const run of inProgressRuns) {
+            if (!run.metadata) {
+                core.warning(`Check run ID ${run.checkRunId} for PR #${run.prNumber} has no metadata. Skipping.`);
+                continue;
+            }
+            if ((0, check_evaluator_1.isTimedOut)(run.metadata)) {
+                // This check run has timed out
+                const elapsed = Math.floor((Date.now() - run.metadata.startTime) / 1000);
+                core.info(`Check run ID ${run.checkRunId} for PR #${run.prNumber} has timed out ` +
+                    `(${elapsed}s elapsed, timeout: ${run.metadata.timeoutSeconds}s)`);
+                // Do a final evaluation to get the current state for the summary
+                const result = yield (0, check_evaluator_1.evaluateChecks)(octokit, run.sha, run.metadata, inputs.checkRunName);
+                // The evaluateChecks already returns timed_out when timeout is exceeded
+                yield (0, check_run_manager_1.updateCheckRun)(octokit, run.checkRunId, result, run.metadata);
+                timedOutCount++;
+            }
+            else {
+                const elapsed = Math.floor((Date.now() - run.metadata.startTime) / 1000);
+                const remaining = run.metadata.timeoutSeconds - elapsed;
+                core.info(`Check run ID ${run.checkRunId} for PR #${run.prNumber} is still within timeout ` +
+                    `(${elapsed}s elapsed, ${remaining}s remaining)`);
+                stillWaitingCount++;
+            }
+        }
+        core.info(`Scheduled timeout check complete: ${timedOutCount} timed out, ${stillWaitingCount} still waiting`);
+    });
+}
+exports.handleScheduledTimeout = handleScheduledTimeout;
+
+
+/***/ }),
+
+/***/ 4822:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.run = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const github = __importStar(__nccwpck_require__(5438));
+const inputs_1 = __nccwpck_require__(1278);
+const context_1 = __nccwpck_require__(6570);
+const pull_request_1 = __nccwpck_require__(5451);
+const check_run_completed_1 = __nccwpck_require__(5976);
+const scheduled_timeout_1 = __nccwpck_require__(5558);
+/**
+ * Main entry point for the combined-status-check-action.
+ *
+ * This action uses an event-driven architecture:
+ * - pull_request events: Create an in_progress check run with metadata
+ * - check_run.completed events: Re-evaluate and update our check run
+ * - schedule events: Enforce timeouts for stale check runs
+ */
+function run() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const inputs = (0, inputs_1.getInputs)();
+            const octokit = github.getOctokit(inputs.token);
+            const eventName = github.context.eventName;
+            const action = (0, context_1.getEventAction)(github.context);
+            core.info(`Event: ${eventName}${action ? ` (action: ${action})` : ''}`);
+            switch (eventName) {
+                case 'pull_request':
+                    // Handle PR opened, synchronize (new commits), or reopened
+                    if (action === 'opened' ||
+                        action === 'synchronize' ||
+                        action === 'reopened') {
+                        yield (0, pull_request_1.handlePullRequest)(octokit, inputs);
+                    }
+                    else {
+                        core.info(`Ignoring pull_request event with action "${action}". ` +
+                            `Only opened, synchronize, and reopened are handled.`);
+                    }
+                    break;
+                case 'check_run':
+                    // Handle when other check runs complete
+                    if (action === 'completed') {
+                        yield (0, check_run_completed_1.handleCheckRunCompleted)(octokit, inputs);
+                    }
+                    else {
+                        core.info(`Ignoring check_run event with action "${action}". ` +
+                            `Only completed is handled.`);
+                    }
+                    break;
+                case 'schedule':
+                    // Handle scheduled runs for timeout enforcement
+                    yield (0, scheduled_timeout_1.handleScheduledTimeout)(octokit, inputs);
+                    break;
+                case 'workflow_dispatch':
+                    // Manual trigger - run timeout check (useful for testing)
+                    core.info('workflow_dispatch event: running timeout check');
+                    yield (0, scheduled_timeout_1.handleScheduledTimeout)(octokit, inputs);
+                    break;
+                default:
+                    core.warning(`Unsupported event type: ${eventName}. ` +
+                        `This action supports: pull_request, check_run, schedule, workflow_dispatch`);
+            }
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                core.setFailed(error.message);
+            }
+            else {
+                core.setFailed(String(error));
+            }
+        }
+    });
+}
+exports.run = run;
+// Only run when not in test environment
+if (process.env.NODE_ENV !== 'test') {
+    run();
+}
+
+
+/***/ }),
+
+/***/ 8492:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -46,50 +541,14 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.main = exports.getBranchFromContext = exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
+exports.evaluateChecks = exports.isTimedOut = exports.evaluateCheckRuns = exports.evaluateStatuses = exports.evaluateRequiredCheckRuns = void 0;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
-const DEFAULT_REGEX = '^.*$';
-/**
- * Parse a newline-separated list of required check run names into a Set.
- * Trims whitespace and filters out empty lines.
- */
-function parseRequiredCheckRuns(input) {
-    const trimmed = input.trim();
-    if (!trimmed) {
-        return new Set();
-    }
-    const names = trimmed
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
-    return new Set(names);
-}
-exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
-/**
- * Validate that required-check-runs is not used with custom regex inputs.
- * Required checks mode only monitors specific check runs, not statuses,
- * so custom regex filters don't apply.
- */
-function validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns) {
-    const hasRequiredChecks = requiredCheckRuns.size > 0;
-    if (!hasRequiredChecks) {
-        return;
-    }
-    if (statusRegexInput !== DEFAULT_REGEX) {
-        throw new Error('Cannot use both required-check-runs and a custom status-regex. ' +
-            'Required checks mode only monitors check runs, not commit statuses.');
-    }
-    if (checkRunRegexInput !== DEFAULT_REGEX) {
-        throw new Error('Cannot use both required-check-runs and a custom check-run-regex. ' +
-            'Please use one or the other.');
-    }
-}
-exports.validateInputs = validateInputs;
+const types_1 = __nccwpck_require__(3922);
 /**
  * Fetch check runs and categorize them by required check status.
  */
-function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
+function evaluateRequiredCheckRuns(octokit, sha, requiredCheckRuns) {
     var _a, e_1, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
@@ -158,184 +617,11 @@ function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
         return { succeeded, pending, failed, missing };
     });
 }
-exports.requiredCheckRunLoopIteration = requiredCheckRunLoopIteration;
-function wait(seconds) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return new Promise(resolve => {
-            setTimeout(resolve, seconds * 1000);
-        });
-    });
-}
-function getSHAFromContext(ctx) {
-    if (ctx.eventName === 'pull_request') {
-        const pullRequestEvent = ctx.payload;
-        return pullRequestEvent.pull_request.head.sha;
-    }
-    else {
-        return ctx.sha;
-    }
-}
-function getBranchFromContext(ctx) {
-    if (ctx.eventName === 'pull_request') {
-        const pullRequestEvent = ctx.payload;
-        return pullRequestEvent.pull_request.head.ref;
-    }
-    else if (ctx.ref && ctx.ref.startsWith('refs/heads/')) {
-        // Extract branch name from ref like "refs/heads/feature/my-branch"
-        return ctx.ref.substring('refs/heads/'.length);
-    }
-    else {
-        // For other event types (tags, etc.), return null
-        return null;
-    }
-}
-exports.getBranchFromContext = getBranchFromContext;
-function main() {
-    return __awaiter(this, void 0, void 0, function* () {
-        const githubToken = core.getInput('token', { required: true });
-        const initialDelaySeconds = parseInt(core.getInput('initial-delay-seconds', { required: true }));
-        const intervalSeconds = parseInt(core.getInput('interval-seconds', { required: true }));
-        const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
-        const statusRegexInput = core.getInput('status-regex', { required: true });
-        const checkRunRegexInput = core.getInput('check-run-regex', { required: true });
-        const requiredCheckRunsInput = core.getInput('required-check-runs');
-        const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
-        // Validate mutual exclusivity
-        validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns);
-        const statusRegex = new RegExp(statusRegexInput);
-        const checkRunRegex = new RegExp(checkRunRegexInput);
-        const sha = getSHAFromContext(github.context);
-        core.info(`Executing combined-status-check-action on SHA ${sha}.`);
-        // Check for auto-pass branch prefix
-        const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix');
-        if (autoPassBranchPrefix) {
-            const branchName = getBranchFromContext(github.context);
-            if (branchName) {
-                core.info(`Detected branch: ${branchName}`);
-                if (branchName.startsWith(autoPassBranchPrefix)) {
-                    core.info(`Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
-                        `Skipping status checks and marking as successful.`);
-                    return; // Early exit - action succeeds
-                }
-                else {
-                    core.info(`Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
-                        `Proceeding with normal status check logic.`);
-                }
-            }
-            else {
-                core.info(`Could not determine branch name for event type '${github.context.eventName}'. ` +
-                    `Proceeding with normal status check logic.`);
-            }
-        }
-        if (requiredCheckRuns.size > 0) {
-            core.info(`Using required-check-runs mode with ${requiredCheckRuns.size} required checks: [${[...requiredCheckRuns].join(', ')}]`);
-        }
-        const octokit = github.getOctokit(githubToken);
-        core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
-        yield wait(initialDelaySeconds);
-        yield loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds);
-    });
-}
-exports.main = main;
-function isStatusPending(status) {
-    return status.state === 'pending';
-}
-function isStatusFailed(status) {
-    return status.state === 'error' || status.state === 'failure';
-}
-function isCheckRunCompleted(run) {
-    return run.status === 'completed';
-}
-function isCheckRunFailed(run) {
-    return (run.conclusion === 'cancelled' ||
-        run.conclusion === 'failure' ||
-        run.conclusion === 'timed_out');
-}
-function loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let elapsedSeconds = 0;
-        const useRequiredChecksMode = requiredCheckRuns.size > 0;
-        core.info('Starting combined status check loop...');
-        do {
-            if (useRequiredChecksMode) {
-                // Required checks mode: only track specific check runs by name
-                // Skip status API call since we only care about check runs
-                const requiredResult = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
-                // Fail immediately if any required checks have failed
-                if (requiredResult.failed.length > 0) {
-                    core.setFailed(`The following required check runs have failed: [${requiredResult.failed.join(', ')}].`);
-                    return;
-                }
-                // Check if there are still pending/missing checks
-                const hasPendingWork = requiredResult.pending.length > 0 || requiredResult.missing.length > 0;
-                if (hasPendingWork) {
-                    if (requiredResult.pending.length > 0) {
-                        core.info(`The following required check runs are pending: [${requiredResult.pending.join(', ')}].`);
-                    }
-                    if (requiredResult.missing.length > 0) {
-                        core.info(`The following required check runs have not appeared yet: [${requiredResult.missing.join(', ')}].`);
-                    }
-                    core.info(`Waiting for ${requiredResult.pending.length} pending checks and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
-                    yield wait(intervalSeconds);
-                    elapsedSeconds += intervalSeconds;
-                    continue;
-                }
-                core.info(`All ${requiredCheckRuns.size} required check runs have completed successfully.`);
-                return;
-            }
-            else {
-                // Original regex mode
-                const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
-                    combinedStatusLoopIteration(octokit, sha, statusRegex),
-                    checkRunLoopIteration(octokit, sha, checkRunRegex)
-                ]);
-                const [pendingStatuses, completedStatuses] = statusLoopResult;
-                const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
-                if (pendingStatuses.length || pendingCheckRuns.length) {
-                    const statusNames = pendingStatuses.map(status => status.context);
-                    const checkRunNames = pendingCheckRuns.map(run => run.name);
-                    core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
-                    core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
-                    core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
-                    yield wait(intervalSeconds);
-                    elapsedSeconds += intervalSeconds;
-                    continue;
-                }
-                const failedStatuses = completedStatuses
-                    .filter(isStatusFailed)
-                    .map(status => status.context);
-                const failedCheckRuns = completedCheckRuns
-                    .filter(isCheckRunFailed)
-                    .map(run => run.name);
-                if (failedStatuses.length) {
-                    core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
-                }
-                if (failedCheckRuns.length) {
-                    core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
-                }
-                core.info('All statuses and check runs have completed.');
-                return;
-            }
-        } while (elapsedSeconds < timeoutSeconds);
-        if (useRequiredChecksMode) {
-            // Provide more specific timeout message for required checks mode
-            const result = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
-            if (result.missing.length > 0) {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs never appeared: [${result.missing.join(', ')}].`);
-            }
-            else if (result.pending.length > 0) {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs are still pending: [${result.pending.join(', ')}].`);
-            }
-            else {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
-            }
-        }
-        else {
-            core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
-        }
-    });
-}
-function combinedStatusLoopIteration(octokit, sha, regex) {
+exports.evaluateRequiredCheckRuns = evaluateRequiredCheckRuns;
+/**
+ * Fetch and filter statuses based on regex.
+ */
+function evaluateStatuses(octokit, sha, regex) {
     var _a, e_2, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
@@ -359,7 +645,7 @@ function combinedStatusLoopIteration(octokit, sha, regex) {
                             continue;
                         }
                         filteredStatuses++;
-                        if (isStatusPending(status)) {
+                        if ((0, types_1.isStatusPending)(status)) {
                             pendingStatuses.push(status);
                         }
                         else {
@@ -383,7 +669,11 @@ function combinedStatusLoopIteration(octokit, sha, regex) {
         return [pendingStatuses, completedStatuses];
     });
 }
-function checkRunLoopIteration(octokit, sha, regex) {
+exports.evaluateStatuses = evaluateStatuses;
+/**
+ * Fetch and filter check runs based on regex.
+ */
+function evaluateCheckRuns(octokit, sha, regex, excludeCheckRunName) {
     var _a, e_3, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
@@ -404,6 +694,10 @@ function checkRunLoopIteration(octokit, sha, regex) {
                     const response = _c;
                     totalCheckRuns += response.data.length;
                     for (const checkRun of response.data) {
+                        // Skip our own check run
+                        if (excludeCheckRunName && checkRun.name === excludeCheckRunName) {
+                            continue;
+                        }
                         if (!regex.test(checkRun.name)) {
                             continue;
                         }
@@ -429,7 +723,7 @@ function checkRunLoopIteration(octokit, sha, regex) {
         const pendingCheckRuns = [];
         const completedCheckRuns = [];
         for (const checkRun of checkRunsByName.values()) {
-            if (isCheckRunCompleted(checkRun)) {
+            if ((0, types_1.isCheckRunCompleted)(checkRun)) {
                 completedCheckRuns.push(checkRun);
             }
             else {
@@ -440,18 +734,719 @@ function checkRunLoopIteration(octokit, sha, regex) {
         return [pendingCheckRuns, completedCheckRuns];
     });
 }
-// Only run main() when not in test environment
-if (process.env.NODE_ENV !== 'test') {
-    try {
-        // eslint-disable-next-line github/no-then
-        main().catch(err => {
-            core.setFailed(err);
-        });
+exports.evaluateCheckRuns = evaluateCheckRuns;
+/**
+ * Check if the timeout has been exceeded based on metadata.
+ */
+function isTimedOut(metadata) {
+    const deadline = metadata.startTime + metadata.timeoutSeconds * 1000;
+    return Date.now() > deadline;
+}
+exports.isTimedOut = isTimedOut;
+/**
+ * Evaluate all checks and return the result.
+ * This is the main evaluation function that determines the final conclusion.
+ */
+function evaluateChecks(octokit, sha, metadata, ourCheckRunName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Check timeout first (hybrid approach - immediate timeout detection)
+        if (isTimedOut(metadata)) {
+            const elapsed = Math.floor((Date.now() - metadata.startTime) / 1000);
+            return {
+                conclusion: 'timed_out',
+                summary: `Timed out after ${elapsed} seconds (timeout: ${metadata.timeoutSeconds}s)`,
+                details: 'The required checks did not complete within the timeout period.'
+            };
+        }
+        if (metadata.mode === 'required-check-runs') {
+            const requiredChecks = new Set(metadata.requiredChecks || []);
+            const result = yield evaluateRequiredCheckRuns(octokit, sha, requiredChecks);
+            // Fail immediately if any required checks have failed
+            if (result.failed.length > 0) {
+                return {
+                    conclusion: 'failure',
+                    summary: `Required checks failed: ${result.failed.join(', ')}`,
+                    details: formatRequiredChecksDetails(result)
+                };
+            }
+            // Still waiting if there are pending or missing checks
+            if (result.pending.length > 0 || result.missing.length > 0) {
+                return {
+                    conclusion: 'in_progress',
+                    summary: formatPendingSummary(result),
+                    details: formatRequiredChecksDetails(result)
+                };
+            }
+            // All checks succeeded
+            return {
+                conclusion: 'success',
+                summary: `All ${requiredChecks.size} required checks passed`,
+                details: formatRequiredChecksDetails(result)
+            };
+        }
+        else {
+            // Regex mode
+            const statusRegex = new RegExp(metadata.statusRegex || '^.*$');
+            const checkRunRegex = new RegExp(metadata.checkRunRegex || '^.*$');
+            const [[pendingStatuses, completedStatuses], [pendingCheckRuns, completedCheckRuns]] = yield Promise.all([
+                evaluateStatuses(octokit, sha, statusRegex),
+                evaluateCheckRuns(octokit, sha, checkRunRegex, ourCheckRunName)
+            ]);
+            // Check for pending items
+            if (pendingStatuses.length > 0 || pendingCheckRuns.length > 0) {
+                const pendingStatusNames = pendingStatuses.map(s => s.context);
+                const pendingCheckRunNames = pendingCheckRuns.map(r => r.name);
+                return {
+                    conclusion: 'in_progress',
+                    summary: `Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs`,
+                    details: formatRegexModeDetails(pendingStatusNames, pendingCheckRunNames, [], [])
+                };
+            }
+            // Check for failures
+            const failedStatuses = completedStatuses.filter(types_1.isStatusFailed);
+            const failedCheckRuns = completedCheckRuns.filter(types_1.isCheckRunFailed);
+            if (failedStatuses.length > 0 || failedCheckRuns.length > 0) {
+                const failedStatusNames = failedStatuses.map(s => s.context);
+                const failedCheckRunNames = failedCheckRuns.map(r => r.name);
+                return {
+                    conclusion: 'failure',
+                    summary: `${failedStatuses.length} statuses and ${failedCheckRuns.length} check runs failed`,
+                    details: formatRegexModeDetails([], [], failedStatusNames, failedCheckRunNames)
+                };
+            }
+            // All checks passed
+            return {
+                conclusion: 'success',
+                summary: `All ${completedStatuses.length} statuses and ${completedCheckRuns.length} check runs passed`
+            };
+        }
+    });
+}
+exports.evaluateChecks = evaluateChecks;
+function formatPendingSummary(result) {
+    const parts = [];
+    if (result.pending.length > 0) {
+        parts.push(`${result.pending.length} pending`);
     }
-    catch (err) {
-        core.setFailed(String(err));
+    if (result.missing.length > 0) {
+        parts.push(`${result.missing.length} missing`);
+    }
+    return `Waiting for checks: ${parts.join(', ')}`;
+}
+function formatRequiredChecksDetails(result) {
+    const lines = [];
+    if (result.succeeded.length > 0) {
+        lines.push(`Succeeded: ${result.succeeded.join(', ')}`);
+    }
+    if (result.pending.length > 0) {
+        lines.push(`Pending: ${result.pending.join(', ')}`);
+    }
+    if (result.missing.length > 0) {
+        lines.push(`Missing: ${result.missing.join(', ')}`);
+    }
+    if (result.failed.length > 0) {
+        lines.push(`Failed: ${result.failed.join(', ')}`);
+    }
+    return lines.join('\n');
+}
+function formatRegexModeDetails(pendingStatuses, pendingCheckRuns, failedStatuses, failedCheckRuns) {
+    const lines = [];
+    if (pendingStatuses.length > 0) {
+        lines.push(`Pending statuses: ${pendingStatuses.join(', ')}`);
+    }
+    if (pendingCheckRuns.length > 0) {
+        lines.push(`Pending check runs: ${pendingCheckRuns.join(', ')}`);
+    }
+    if (failedStatuses.length > 0) {
+        lines.push(`Failed statuses: ${failedStatuses.join(', ')}`);
+    }
+    if (failedCheckRuns.length > 0) {
+        lines.push(`Failed check runs: ${failedCheckRuns.join(', ')}`);
+    }
+    return lines.join('\n');
+}
+
+
+/***/ }),
+
+/***/ 1459:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.findInProgressCheckRuns = exports.findOurCheckRun = exports.updateCheckRun = exports.createCheckRun = exports.decodeMetadata = exports.encodeMetadata = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const github = __importStar(__nccwpck_require__(5438));
+const METADATA_MARKER = '<!-- combined-status-check-metadata:';
+const METADATA_MARKER_END = ':metadata-end -->';
+/**
+ * Encode metadata into a format that can be stored in the check run output.
+ */
+function encodeMetadata(metadata) {
+    const json = JSON.stringify(metadata);
+    return `${METADATA_MARKER}${json}${METADATA_MARKER_END}`;
+}
+exports.encodeMetadata = encodeMetadata;
+/**
+ * Decode metadata from the check run output.
+ * Returns null if no valid metadata is found.
+ */
+function decodeMetadata(text) {
+    if (!text) {
+        return null;
+    }
+    const startIndex = text.indexOf(METADATA_MARKER);
+    if (startIndex === -1) {
+        return null;
+    }
+    const jsonStart = startIndex + METADATA_MARKER.length;
+    const endIndex = text.indexOf(METADATA_MARKER_END, jsonStart);
+    if (endIndex === -1) {
+        return null;
+    }
+    const json = text.substring(jsonStart, endIndex);
+    try {
+        return JSON.parse(json);
+    }
+    catch (_a) {
+        core.warning(`Failed to parse check run metadata: ${json}`);
+        return null;
     }
 }
+exports.decodeMetadata = decodeMetadata;
+/**
+ * Create a new check run in "in_progress" status with metadata.
+ * Returns the check run ID.
+ */
+function createCheckRun(octokit, sha, name, metadata) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const metadataText = encodeMetadata(metadata);
+        const response = yield octokit.rest.checks.create({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            name,
+            head_sha: sha,
+            status: 'in_progress',
+            started_at: new Date(metadata.startTime).toISOString(),
+            output: {
+                title: 'Waiting for checks to complete',
+                summary: 'Monitoring required checks...',
+                text: metadataText
+            }
+        });
+        core.info(`Created check run "${name}" (ID: ${response.data.id}) for SHA ${sha}`);
+        return response.data.id;
+    });
+}
+exports.createCheckRun = createCheckRun;
+/**
+ * Update an existing check run with new status and conclusion.
+ */
+function updateCheckRun(octokit, checkRunId, result, metadata) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const metadataText = metadata ? encodeMetadata(metadata) : undefined;
+        // Map our conclusion to GitHub's check run conclusion
+        const isComplete = result.conclusion !== 'in_progress';
+        const status = isComplete ? 'completed' : 'in_progress';
+        const conclusion = isComplete
+            ? mapConclusion(result.conclusion)
+            : undefined;
+        yield octokit.rest.checks.update({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            check_run_id: checkRunId,
+            status,
+            conclusion,
+            completed_at: isComplete ? new Date().toISOString() : undefined,
+            output: {
+                title: result.summary,
+                summary: result.details || result.summary,
+                text: metadataText
+            }
+        });
+        core.info(`Updated check run ID ${checkRunId}: ${status}${conclusion ? ` (${conclusion})` : ''}`);
+    });
+}
+exports.updateCheckRun = updateCheckRun;
+/**
+ * Map our internal conclusion to GitHub's check run conclusion.
+ */
+function mapConclusion(conclusion) {
+    return conclusion;
+}
+/**
+ * Find our check run for a given SHA.
+ * Returns the most recent (highest ID) check run with our name.
+ */
+function findOurCheckRun(octokit, sha, checkRunName) {
+    var _a, e_1, _b, _c;
+    var _d, _e;
+    return __awaiter(this, void 0, void 0, function* () {
+        const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            ref: sha,
+            check_name: checkRunName
+        });
+        let latestCheckRun = null;
+        try {
+            for (var _f = true, checkRunsIterator_1 = __asyncValues(checkRunsIterator), checkRunsIterator_1_1; checkRunsIterator_1_1 = yield checkRunsIterator_1.next(), _a = checkRunsIterator_1_1.done, !_a;) {
+                _c = checkRunsIterator_1_1.value;
+                _f = false;
+                try {
+                    const response = _c;
+                    for (const checkRun of response.data) {
+                        if (checkRun.name === checkRunName) {
+                            if (!latestCheckRun || checkRun.id > latestCheckRun.id) {
+                                latestCheckRun = {
+                                    id: checkRun.id,
+                                    text: (_e = (_d = checkRun.output) === null || _d === void 0 ? void 0 : _d.text) !== null && _e !== void 0 ? _e : null
+                                };
+                            }
+                        }
+                    }
+                }
+                finally {
+                    _f = true;
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (!_f && !_a && (_b = checkRunsIterator_1.return)) yield _b.call(checkRunsIterator_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        if (!latestCheckRun) {
+            return null;
+        }
+        const metadata = decodeMetadata(latestCheckRun.text);
+        return {
+            id: latestCheckRun.id,
+            metadata
+        };
+    });
+}
+exports.findOurCheckRun = findOurCheckRun;
+/**
+ * Find all our in-progress check runs across all open PRs.
+ * Used by the scheduled timeout handler.
+ */
+function findInProgressCheckRuns(octokit, checkRunName) {
+    var _a, e_2, _b, _c;
+    return __awaiter(this, void 0, void 0, function* () {
+        const results = [];
+        // List all open PRs
+        const prsIterator = octokit.paginate.iterator(octokit.rest.pulls.list, {
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            state: 'open'
+        });
+        try {
+            for (var _d = true, prsIterator_1 = __asyncValues(prsIterator), prsIterator_1_1; prsIterator_1_1 = yield prsIterator_1.next(), _a = prsIterator_1_1.done, !_a;) {
+                _c = prsIterator_1_1.value;
+                _d = false;
+                try {
+                    const prResponse = _c;
+                    for (const pr of prResponse.data) {
+                        const sha = pr.head.sha;
+                        // Find our check run for this PR's HEAD SHA
+                        const checkRun = yield findOurCheckRun(octokit, sha, checkRunName);
+                        if (checkRun) {
+                            // Check if it's still in_progress by looking at the status
+                            const checkRunsResponse = yield octokit.rest.checks.listForRef({
+                                owner: github.context.repo.owner,
+                                repo: github.context.repo.repo,
+                                ref: sha,
+                                check_name: checkRunName
+                            });
+                            const ourRun = checkRunsResponse.data.check_runs.find(r => r.id === checkRun.id);
+                            if (ourRun && ourRun.status === 'in_progress') {
+                                results.push({
+                                    checkRunId: checkRun.id,
+                                    sha,
+                                    prNumber: pr.number,
+                                    metadata: checkRun.metadata
+                                });
+                            }
+                        }
+                    }
+                }
+                finally {
+                    _d = true;
+                }
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (!_d && !_a && (_b = prsIterator_1.return)) yield _b.call(prsIterator_1);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+        return results;
+    });
+}
+exports.findInProgressCheckRuns = findInProgressCheckRuns;
+
+
+/***/ }),
+
+/***/ 6570:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getEventAction = exports.isSelfTrigger = exports.getPullRequestsForSha = exports.getPullRequestsForCheckRun = exports.getPullRequestNumberFromContext = exports.getBranchFromContext = exports.getSHAFromContext = void 0;
+const github = __importStar(__nccwpck_require__(5438));
+/**
+ * Extract the commit SHA from the current GitHub context.
+ */
+function getSHAFromContext(ctx) {
+    if (ctx.eventName === 'pull_request') {
+        const pullRequestEvent = ctx.payload;
+        return pullRequestEvent.pull_request.head.sha;
+    }
+    else if (ctx.eventName === 'check_run') {
+        const checkRunEvent = ctx.payload;
+        return checkRunEvent.check_run.head_sha;
+    }
+    else {
+        return ctx.sha;
+    }
+}
+exports.getSHAFromContext = getSHAFromContext;
+/**
+ * Extract the branch name from the current GitHub context.
+ * Returns null if the branch cannot be determined (e.g., for tag events).
+ */
+function getBranchFromContext(ctx) {
+    var _a, _b;
+    if (ctx.eventName === 'pull_request') {
+        const pullRequestEvent = ctx.payload;
+        return pullRequestEvent.pull_request.head.ref;
+    }
+    else if (ctx.eventName === 'check_run') {
+        const checkRunEvent = ctx.payload;
+        // check_run events include the branch in check_run.check_suite.head_branch
+        return (_b = (_a = checkRunEvent.check_run.check_suite) === null || _a === void 0 ? void 0 : _a.head_branch) !== null && _b !== void 0 ? _b : null;
+    }
+    else if (ctx.ref && ctx.ref.startsWith('refs/heads/')) {
+        // Extract branch name from ref like "refs/heads/feature/my-branch"
+        return ctx.ref.substring('refs/heads/'.length);
+    }
+    else {
+        // For other event types (tags, etc.), return null
+        return null;
+    }
+}
+exports.getBranchFromContext = getBranchFromContext;
+/**
+ * Get the pull request number from the current GitHub context.
+ * Returns null if not in a pull request context.
+ */
+function getPullRequestNumberFromContext(ctx) {
+    if (ctx.eventName === 'pull_request') {
+        const pullRequestEvent = ctx.payload;
+        return pullRequestEvent.pull_request.number;
+    }
+    return null;
+}
+exports.getPullRequestNumberFromContext = getPullRequestNumberFromContext;
+/**
+ * Get pull requests associated with a check_run event.
+ * The check_run payload includes a pull_requests array, but it may be empty
+ * for cross-fork PRs. Falls back to API lookup if needed.
+ */
+function getPullRequestsForCheckRun(octokit, ctx) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (ctx.eventName !== 'check_run') {
+            return [];
+        }
+        const checkRunEvent = ctx.payload;
+        const pullRequests = checkRunEvent.check_run.pull_requests;
+        // If the payload includes pull requests, use them
+        if (pullRequests && pullRequests.length > 0) {
+            return pullRequests.map(pr => ({
+                number: pr.number,
+                headSha: checkRunEvent.check_run.head_sha,
+                headRef: pr.head.ref
+            }));
+        }
+        // Fallback: query the API to find PRs associated with this SHA
+        const sha = checkRunEvent.check_run.head_sha;
+        return getPullRequestsForSha(octokit, sha);
+    });
+}
+exports.getPullRequestsForCheckRun = getPullRequestsForCheckRun;
+/**
+ * Find pull requests associated with a given commit SHA.
+ */
+function getPullRequestsForSha(octokit, sha) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const response = yield octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: github.context.repo.owner,
+                repo: github.context.repo.repo,
+                commit_sha: sha
+            });
+            return response.data.map(pr => ({
+                number: pr.number,
+                headSha: pr.head.sha,
+                headRef: pr.head.ref
+            }));
+        }
+        catch (error) {
+            // If we can't find PRs, return empty array
+            return [];
+        }
+    });
+}
+exports.getPullRequestsForSha = getPullRequestsForSha;
+/**
+ * Check if the current check_run event is a self-trigger
+ * (i.e., triggered by our own check run completing).
+ */
+function isSelfTrigger(ctx, ourCheckRunName) {
+    if (ctx.eventName !== 'check_run') {
+        return false;
+    }
+    const checkRunEvent = ctx.payload;
+    return checkRunEvent.check_run.name === ourCheckRunName;
+}
+exports.isSelfTrigger = isSelfTrigger;
+/**
+ * Get the action type from the payload (e.g., 'opened', 'synchronize', 'completed').
+ */
+function getEventAction(ctx) {
+    return ctx.payload.action;
+}
+exports.getEventAction = getEventAction;
+
+
+/***/ }),
+
+/***/ 1278:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getInputs = exports.validateInputs = exports.parseRequiredCheckRuns = exports.DEFAULT_CHECK_RUN_NAME = exports.DEFAULT_REGEX = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+exports.DEFAULT_REGEX = '^.*$';
+exports.DEFAULT_CHECK_RUN_NAME = 'Combined Status Check';
+/**
+ * Parse a newline-separated list of required check run names into a Set.
+ * Trims whitespace and filters out empty lines.
+ */
+function parseRequiredCheckRuns(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+        return new Set();
+    }
+    const names = trimmed
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    return new Set(names);
+}
+exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
+/**
+ * Validate that required-check-runs is not used with custom regex inputs.
+ * Required checks mode only monitors specific check runs, not statuses,
+ * so custom regex filters don't apply.
+ */
+function validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns) {
+    const hasRequiredChecks = requiredCheckRuns.size > 0;
+    if (!hasRequiredChecks) {
+        return;
+    }
+    if (statusRegexInput !== exports.DEFAULT_REGEX) {
+        throw new Error('Cannot use both required-check-runs and a custom status-regex. ' +
+            'Required checks mode only monitors check runs, not commit statuses.');
+    }
+    if (checkRunRegexInput !== exports.DEFAULT_REGEX) {
+        throw new Error('Cannot use both required-check-runs and a custom check-run-regex. ' +
+            'Please use one or the other.');
+    }
+}
+exports.validateInputs = validateInputs;
+/**
+ * Read and parse all action inputs.
+ */
+function getInputs() {
+    const token = core.getInput('token', { required: true });
+    const checkRunName = core.getInput('check-run-name') || exports.DEFAULT_CHECK_RUN_NAME;
+    const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
+    const statusRegex = core.getInput('status-regex', { required: true });
+    const checkRunRegex = core.getInput('check-run-regex', { required: true });
+    const requiredCheckRunsInput = core.getInput('required-check-runs');
+    const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix');
+    // Deprecated inputs (kept for compatibility, may log warnings)
+    const initialDelaySecondsInput = core.getInput('initial-delay-seconds');
+    const intervalSecondsInput = core.getInput('interval-seconds');
+    // Parse initial-delay-seconds, defaulting to 10 for backwards compatibility
+    let initialDelaySeconds = 10;
+    if (initialDelaySecondsInput) {
+        initialDelaySeconds = parseInt(initialDelaySecondsInput);
+        if (initialDelaySecondsInput !== '10') {
+            core.warning('The initial-delay-seconds input is deprecated in v2 event-driven mode. ' +
+                'It is only used when initial evaluation is performed on pull_request events.');
+        }
+    }
+    // Parse interval-seconds, defaulting to 2 for backwards compatibility
+    let intervalSeconds = 2;
+    if (intervalSecondsInput) {
+        intervalSeconds = parseInt(intervalSecondsInput);
+        if (intervalSecondsInput !== '2') {
+            core.warning('The interval-seconds input is deprecated in v2 event-driven mode. ' +
+                'Polling is no longer performed; the action responds to check_run events instead.');
+        }
+    }
+    const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
+    // Validate mutual exclusivity
+    validateInputs(statusRegex, checkRunRegex, requiredCheckRuns);
+    return {
+        token,
+        checkRunName,
+        timeoutSeconds,
+        statusRegex,
+        checkRunRegex,
+        requiredCheckRuns,
+        autoPassBranchPrefix,
+        initialDelaySeconds,
+        intervalSeconds
+    };
+}
+exports.getInputs = getInputs;
+
+
+/***/ }),
+
+/***/ 3922:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isCheckRunFailed = exports.isCheckRunCompleted = exports.isStatusFailed = exports.isStatusPending = void 0;
+// Type guards
+function isStatusPending(status) {
+    return status.state === 'pending';
+}
+exports.isStatusPending = isStatusPending;
+function isStatusFailed(status) {
+    return status.state === 'error' || status.state === 'failure';
+}
+exports.isStatusFailed = isStatusFailed;
+function isCheckRunCompleted(run) {
+    return run.status === 'completed';
+}
+exports.isCheckRunCompleted = isCheckRunCompleted;
+function isCheckRunFailed(run) {
+    return (run.conclusion === 'cancelled' ||
+        run.conclusion === 'failure' ||
+        run.conclusion === 'timed_out');
+}
+exports.isCheckRunFailed = isCheckRunFailed;
 
 
 /***/ }),
@@ -10230,7 +11225,7 @@ module.exports = JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45,46],"valid"]
 /******/ 	// startup
 /******/ 	// Load entry module and return exports
 /******/ 	// This entry module is referenced by other modules so it can't be inlined
-/******/ 	var __webpack_exports__ = __nccwpck_require__(3109);
+/******/ 	var __webpack_exports__ = __nccwpck_require__(4822);
 /******/ 	module.exports = __webpack_exports__;
 /******/ 	
 /******/ })()

@@ -1,45 +1,77 @@
 name: 'CI'
 
-on: pull_request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  check_run:
+    types: [completed]
+  schedule:
+    # Run every 5 minutes to check for timeouts
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # Allow manual runs for testing
+
+# Prevent duplicate runs for the same PR/SHA
+concurrency:
+  group: combined-status-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  checks: write
+  pull-requests: read
+  contents: read
 
 jobs:
+  # Helper job that sleeps to simulate a slow check
   sleep-for-CI:
     runs-on: ubuntu-latest
+    # Only run on pull_request events
+    if: github.event_name == 'pull_request'
     steps:
       - run: |
           sleep 15
 
+  # Fast check that completes quickly
   fast-check:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - run: echo "done"
 
+  # Slow check that takes a while
   slow-check:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - run: sleep 20 && echo "done"
 
+  # Build and test the action
   build:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - run: npm install
       - run: npm run all
 
+  # E2E test using regex mode
   test-regex-mode:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./
         with:
+          check-run-name: 'Regex Mode Test'
           check-run-regex: "^sleep-for-CI$"
 
+  # E2E test using required-check-runs mode
   test-required-checks-mode:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./
         with:
+          check-run-name: 'Required Checks Test'
           required-check-runs: |
             fast-check
             slow-check

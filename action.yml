@@ -1,18 +1,16 @@
 name: 'Combined Status Check'
-description: 'Combine many status checks into one required check.'
+description: 'Combine many status checks into one required check using event-driven architecture.'
 author: 'Etsy'
 inputs:
   token:
-    description: GitHub Actions access token.
+    description: GitHub Actions access token. Requires checks:write permission.
     default: ${{ github.token }}
 
-  initial-delay-seconds:
-    description: The number of seconds to wait before examining status checks.
-    default: 10
-
-  interval-seconds:
-    desription: The number of seconds to wait in between examining status checks.
-    default: 2
+  check-run-name:
+    description: >
+      The name of the check run that this action creates and manages.
+      This name should be unique and is what you'll add to branch protection.
+    default: 'Combined Status Check'
 
   timeout-seconds:
     description: The maximum number of seconds to wait for all status checks to resolve.
@@ -21,13 +19,13 @@ inputs:
   status-regex:
     description: >
       A regular expression used to filter statuses based on their `context` attribute. Statuses that do not match this
-      expression are ignored.
+      expression are ignored. Cannot be used with required-check-runs.
     default: ^.*$
 
   check-run-regex:
     description: >
       A regular expression used to filter check runs based on their `name` attribute. Check runs that do not match this
-      expression are ignored.
+      expression are ignored. Cannot be used with required-check-runs.
     default: ^.*$
 
   required-check-runs:
@@ -43,6 +41,19 @@ inputs:
       passes. Leave empty to disable this feature.
     default: ''
 
+  # Deprecated inputs (kept for v1 compatibility, ignored in v2)
+  initial-delay-seconds:
+    description: >
+      DEPRECATED in v2: The number of seconds to wait before examining status checks.
+      This input is ignored in the event-driven architecture.
+    default: 10
+
+  interval-seconds:
+    description: >
+      DEPRECATED in v2: The number of seconds to wait in between examining status checks.
+      This input is ignored in the event-driven architecture.
+    default: 2
+
 runs:
-  using: 'node16'
+  using: 'node20'
   main: 'dist/index.js'
