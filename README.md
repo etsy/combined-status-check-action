@@ -34,4 +34,27 @@ This mode:
 - Fails immediately if any required check fails
 - Cannot be combined with a custom `check-run-regex` or `status-regex`
 
+### Auto-pass for trusted branches
+
+Skip all status checks for branches with a specific prefix:
+
+```yaml
+- uses: etsy/combined-status-check@v1
+  with:
+    auto-pass-branch-prefix: "grimoire-"
+    required-check-runs: |
+      build
+      test
+      lint
+```
+
+This mode:
+- Automatically passes when the branch name starts with the configured prefix (case-sensitive)
+- Bypasses all status check validation entirely
+- Useful for trusted automated branches that should always pass
+- Can be combined with any other mode (regex or required-check-runs)
+- Leave empty to disable (default behavior)
+
+**⚠️ Security Note:** This feature completely skips all status checks. Only use it with trusted automated systems where you have full control over branch creation.
+
 See [`action.yml`](./action.yml) for all available options.
