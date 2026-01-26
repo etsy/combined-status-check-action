@@ -157,6 +157,19 @@ function getSHAFromContext(ctx: typeof github.context): string {
   }
 }
 
+export function getBranchFromContext(ctx: typeof github.context): string | null {
+  if (ctx.eventName === 'pull_request') {
+    const pullRequestEvent = ctx.payload as PullRequestEvent
+    return pullRequestEvent.pull_request.head.ref
+  } else if (ctx.ref && ctx.ref.startsWith('refs/heads/')) {
+    // Extract branch name from ref like "refs/heads/feature/my-branch"
+    return ctx.ref.substring('refs/heads/'.length)
+  } else {
+    // For other event types (tags, etc.), return null
+    return null
+  }
+}
+
 async function main(): Promise<void> {
   const githubToken = core.getInput('token', {required: true})
   const initialDelaySeconds: number = parseInt(
@@ -184,6 +197,35 @@ async function main(): Promise<void> {
   const sha = getSHAFromContext(github.context)
 
   core.info(`Executing combined-status-check-action on SHA ${sha}.`)
+
+  // Check for auto-pass branch prefix
+  const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix')
+
+  if (autoPassBranchPrefix) {
+    const branchName = getBranchFromContext(github.context)
+
+    if (branchName) {
+      core.info(`Detected branch: ${branchName}`)
+
+      if (branchName.startsWith(autoPassBranchPrefix)) {
+        core.info(
+          `Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
+          `Skipping status checks and marking as successful.`
+        )
+        return // Early exit - action succeeds
+      } else {
+        core.info(
+          `Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
+          `Proceeding with normal status check logic.`
+        )
+      }
+    } else {
+      core.info(
+        `Could not determine branch name for event type '${github.context.eventName}'. ` +
+        `Proceeding with normal status check logic.`
+      )
+    }
+  }
 
   if (requiredCheckRuns.size > 0) {
     core.info(
