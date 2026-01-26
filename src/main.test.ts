@@ -488,4 +488,91 @@ describe('main() auto-pass integration', () => {
     // Verify: Should proceed directly to normal logic
     expect(allInfoCalls).toContain('Starting combined status check loop...')
   })
+
+  it('should proceed with normal checks when branch name cannot be determined', async () => {
+    // Setup: Configure inputs WITH auto-pass prefix
+    getInputMock.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        'token': 'fake-token',
+        'initial-delay-seconds': '0',
+        'interval-seconds': '1',
+        'timeout-seconds': '1',
+        'status-regex': '^.*$',
+        'check-run-regex': '^.*$',
+        'required-check-runs': '',
+        'auto-pass-branch-prefix': 'grimoire-' // Prefix IS set
+      }
+      return inputs[name] || ''
+    })
+
+    // Mock github.context for an event type where branch cannot be determined
+    // (e.g., workflow_dispatch, schedule, etc.)
+    Object.defineProperty(github, 'context', {
+      value: {
+        eventName: 'workflow_dispatch', // Event type that doesn't have branch info
+        sha: 'abc123def456',
+        ref: 'refs/tags/v1.0.0', // Tag ref, not a branch
+        repo: {
+          owner: 'test-owner',
+          repo: 'test-repo'
+        },
+        payload: {} // No pull_request data
+      },
+      writable: true
+    })
+
+    // Mock Octokit to avoid actual API calls
+    const mockRepos = {
+      getCombinedStatusForRef: jest.fn()
+    }
+    const mockChecks = {
+      listForRef: jest.fn()
+    }
+    const mockOctokit = {
+      paginate: {
+        iterator: jest.fn().mockImplementation((endpoint: any, _params: any) => {
+          // Paginated combined status responses
+          if (endpoint === mockRepos.getCombinedStatusForRef) {
+            return (async function* () {
+              yield { data: { statuses: [] } }
+            })()
+          }
+          // Paginated check run responses
+          if (endpoint === mockChecks.listForRef) {
+            return (async function* () {
+              yield { data: [] }
+            })()
+          }
+          // Default: empty array-shaped data
+          return (async function* () {
+            yield { data: [] }
+          })()
+        })
+      },
+      rest: {
+        repos: mockRepos,
+        checks: mockChecks
+      }
+    }
+    jest.spyOn(github, 'getOctokit').mockReturnValue(mockOctokit as any)
+
+    // Execute: Run main() with fake timers
+    const mainPromise = main()
+    jest.runAllTimers()
+    await mainPromise
+
+    // Verify: Should log that branch name could not be determined
+    expect(infoMock).toHaveBeenCalledWith(
+      "Could not determine branch name for event type 'workflow_dispatch'. " +
+      "Proceeding with normal status check logic."
+    )
+
+    // Verify: Should proceed to normal logic despite auto-pass being configured
+    const allInfoCalls = infoMock.mock.calls.map(call => call[0])
+    expect(allInfoCalls).toContain('Starting combined status check loop...')
+
+    // Verify: Should NOT log branch detection or auto-pass messages
+    expect(allInfoCalls).not.toContain(expect.stringContaining('Detected branch'))
+    expect(allInfoCalls).not.toContain(expect.stringContaining('starts with auto-pass prefix'))
+  })
 })
