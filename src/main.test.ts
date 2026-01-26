@@ -452,9 +452,17 @@ describe('main() auto-pass integration', () => {
     // Mock github.getOctokit to return empty results (all checks passing)
     const mockOctokit = {
       paginate: {
-        iterator: jest.fn().mockReturnValue((async function* () {
-          yield {data: {statuses: []}}
-        })())
+        iterator: jest.fn().mockImplementation((method: any, params: any) => {
+          return (async function* () {
+            // For combined status, mimic { data: { statuses: [] } }
+            if (method === mockOctokit.rest.repos.getCombinedStatusForRef) {
+              yield { data: { statuses: [] } }
+            } else if (method === mockOctokit.rest.checks.listForRef) {
+              // For check runs, mimic { data: [] } (array of check runs)
+              yield { data: [] }
+            }
+          })()
+        })
       },
       rest: {
         repos: {
