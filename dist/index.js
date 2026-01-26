@@ -46,7 +46,7 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
+exports.main = exports.getBranchFromContext = exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
 const DEFAULT_REGEX = '^.*$';
@@ -60,7 +60,7 @@ function parseRequiredCheckRuns(input) {
         return new Set();
     }
     const names = trimmed
-        .split('\n')
+        .split(/\r?\n/)
         .map(line => line.trim())
         .filter(line => line.length > 0);
     return new Set(names);
@@ -76,13 +76,11 @@ function validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns)
     if (!hasRequiredChecks) {
         return;
     }
-    const isCustomStatusRegex = statusRegexInput !== DEFAULT_REGEX;
-    const isCustomCheckRunRegex = checkRunRegexInput !== DEFAULT_REGEX;
-    if (isCustomStatusRegex) {
+    if (statusRegexInput !== DEFAULT_REGEX) {
         throw new Error('Cannot use both required-check-runs and a custom status-regex. ' +
             'Required checks mode only monitors check runs, not commit statuses.');
     }
-    if (isCustomCheckRunRegex) {
+    if (checkRunRegexInput !== DEFAULT_REGEX) {
         throw new Error('Cannot use both required-check-runs and a custom check-run-regex. ' +
             'Please use one or the other.');
     }
@@ -177,6 +175,21 @@ function getSHAFromContext(ctx) {
         return ctx.sha;
     }
 }
+function getBranchFromContext(ctx) {
+    if (ctx.eventName === 'pull_request') {
+        const pullRequestEvent = ctx.payload;
+        return pullRequestEvent.pull_request.head.ref;
+    }
+    else if (ctx.ref && ctx.ref.startsWith('refs/heads/')) {
+        // Extract branch name from ref like "refs/heads/feature/my-branch"
+        return ctx.ref.substring('refs/heads/'.length);
+    }
+    else {
+        // For other event types (tags, etc.), return null
+        return null;
+    }
+}
+exports.getBranchFromContext = getBranchFromContext;
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
         const githubToken = core.getInput('token', { required: true });
@@ -193,6 +206,27 @@ function main() {
         const checkRunRegex = new RegExp(checkRunRegexInput);
         const sha = getSHAFromContext(github.context);
         core.info(`Executing combined-status-check-action on SHA ${sha}.`);
+        // Check for auto-pass branch prefix
+        const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix');
+        if (autoPassBranchPrefix) {
+            const branchName = getBranchFromContext(github.context);
+            if (branchName) {
+                core.info(`Detected branch: ${branchName}`);
+                if (branchName.startsWith(autoPassBranchPrefix)) {
+                    core.info(`Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
+                        `Skipping status checks and marking as successful.`);
+                    return; // Early exit - action succeeds
+                }
+                else {
+                    core.info(`Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
+                        `Proceeding with normal status check logic.`);
+                }
+            }
+            else {
+                core.info(`Could not determine branch name for event type '${github.context.eventName}'. ` +
+                    `Proceeding with normal status check logic.`);
+            }
+        }
         if (requiredCheckRuns.size > 0) {
             core.info(`Using required-check-runs mode with ${requiredCheckRuns.size} required checks: [${[...requiredCheckRuns].join(', ')}]`);
         }
@@ -202,6 +236,7 @@ function main() {
         yield loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds);
     });
 }
+exports.main = main;
 function isStatusPending(status) {
     return status.state === 'pending';
 }
