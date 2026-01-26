@@ -360,19 +360,36 @@ describe('main() auto-pass integration', () => {
     })
 
     // Mock github.getOctokit to return empty results (all checks passing)
+    const mockRepos = {
+      getCombinedStatusForRef: jest.fn()
+    }
+    const mockChecks = {
+      listForRef: jest.fn()
+    }
     const mockOctokit = {
       paginate: {
-        iterator: jest.fn().mockReturnValue((async function* () {
-          yield {data: {statuses: []}}
-        })())
+        iterator: jest.fn().mockImplementation((endpoint: any, _params: any) => {
+          // Paginated combined status responses
+          if (endpoint === mockRepos.getCombinedStatusForRef) {
+            return (async function* () {
+              yield { data: { statuses: [] } }
+            })()
+          }
+          // Paginated check run responses
+          if (endpoint === mockChecks.listForRef) {
+            return (async function* () {
+              yield { data: [] }
+            })()
+          }
+          // Default: empty array-shaped data
+          return (async function* () {
+            yield { data: [] }
+          })()
+        })
       },
       rest: {
-        repos: {
-          getCombinedStatusForRef: jest.fn()
-        },
-        checks: {
-          listForRef: jest.fn()
-        }
+        repos: mockRepos,
+        checks: mockChecks
       }
     }
     jest.spyOn(github, 'getOctokit').mockReturnValue(mockOctokit as any)
