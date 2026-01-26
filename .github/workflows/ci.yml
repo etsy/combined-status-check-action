@@ -3,17 +3,11 @@ name: 'CI'
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  check_run:
-    types: [completed]
-  schedule:
-    # Run every 5 minutes to check for timeouts
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
-    # Allow manual runs for testing
 
-# Prevent duplicate runs for the same PR/SHA
+# Cancel in-progress runs when new commits are pushed to the same PR.
+# This is desired behavior - we don't want to waste resources on old commits.
 concurrency:
-  group: combined-status-${{ github.event.pull_request.number || github.event.check_run.head_sha || github.sha }}
+  group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -25,8 +19,6 @@ jobs:
   # Helper job that sleeps to simulate a slow check
   sleep-for-CI:
     runs-on: ubuntu-latest
-    # Only run on pull_request events
-    if: github.event_name == 'pull_request'
     steps:
       - run: |
           sleep 15
@@ -34,27 +26,24 @@ jobs:
   # Fast check that completes quickly
   fast-check:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - run: echo "done"
 
   # Slow check that takes a while
   slow-check:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - run: sleep 20 && echo "done"
 
   # Build and test the action
   build:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - run: npm install
       - run: npm run all
 
-  # E2E test using regex mode
+  # E2E test: Create check runs on PR open (initial trigger)
   test-regex-mode:
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +53,7 @@ jobs:
           check-run-name: 'Regex Mode Test'
           check-run-regex: "^sleep-for-CI$"
 
-  # E2E test using required-check-runs mode
+  # E2E test: Create check runs on PR open (initial trigger)
   test-required-checks-mode:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,50 @@
+name: 'Combined Status Monitor'
+
+# This workflow monitors check run completions and enforces timeouts.
+# It MUST be a separate workflow from the one that creates the checks,
+# because GitHub prevents check_run events from triggering the same workflow.
+
+on:
+  check_run:
+    types: [completed]
+  schedule:
+    # Run every 5 minutes to check for timeouts
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    # Allow manual runs for testing
+
+# Prevent duplicate runs for the same SHA.
+# For check_run events, use the check run's SHA.
+# For schedule/workflow_dispatch, use a unique group to allow parallel processing.
+concurrency:
+  group: combined-status-monitor-${{ github.event.check_run.head_sha || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  checks: write
+  pull-requests: read
+  contents: read
+
+jobs:
+  # Monitor check runs using regex mode
+  monitor-regex-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          check-run-name: 'Regex Mode Test'
+          check-run-regex: "^sleep-for-CI$"
+
+  # Monitor check runs using required-checks mode
+  monitor-required-checks-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          check-run-name: 'Required Checks Test'
+          required-check-runs: |
+            fast-check
+            slow-check
+          timeout-seconds: 120
