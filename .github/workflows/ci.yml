@@ -9,19 +9,38 @@ jobs:
       - run: |
           sleep 15
 
+  fast-check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "done"
+
+  slow-check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 20 && echo "done"
+
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - run: |
-          npm install
-      - run: |
-          npm run all
+      - uses: actions/checkout@v4
+      - run: npm install
+      - run: npm run all
 
-  test:
+  test-regex-mode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: ./
         with:
           check-run-regex: "^sleep-for-CI$"
+
+  test-required-checks-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          required-check-runs: |
+            fast-check
+            slow-check
+          timeout-seconds: 120

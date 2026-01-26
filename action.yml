@@ -26,9 +26,15 @@ inputs:
 
   check-run-regex:
     description: >
-      A regular expression used to filter check runs based on their `name` attribute. Check runs that to not match this
+      A regular expression used to filter check runs based on their `name` attribute. Check runs that do not match this
       expression are ignored.
     default: ^.*$
+
+  required-check-runs:
+    description: >
+      Newline-separated list of check run names that must all appear and succeed.
+      Uses exact name matching. Cannot be used with a custom check-run-regex or status-regex.
+    default: ''
 
 runs:
   using: 'node16'

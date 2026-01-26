@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test'
+
 module.exports = {
   clearMocks: true,
   moduleFileExtensions: ['js', 'ts'],
