@@ -245,9 +245,8 @@ describe('main() auto-pass integration', () => {
     // Restore timers
     jest.useRealTimers()
 
-    // Restore mocks
-    getInputMock.mockRestore()
-    infoMock.mockRestore()
+    // Restore all mocks (restores getInputMock, infoMock, and any other spies)
+    jest.restoreAllMocks()
 
     // Restore context
     Object.defineProperty(github, 'context', {
