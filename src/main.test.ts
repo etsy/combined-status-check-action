@@ -259,7 +259,7 @@ describe('main() auto-pass integration', () => {
     // Setup: Configure inputs for auto-pass scenario
     getInputMock.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'token': 'fake-token',
+        token: 'fake-token',
         'initial-delay-seconds': '10',
         'interval-seconds': '2',
         'timeout-seconds': '300',
@@ -300,10 +300,12 @@ describe('main() auto-pass integration', () => {
     expect(infoMock).toHaveBeenCalledWith(
       'Executing combined-status-check-action on SHA abc123def456.'
     )
-    expect(infoMock).toHaveBeenCalledWith('Detected branch: grimoire-test-branch')
+    expect(infoMock).toHaveBeenCalledWith(
+      'Detected branch: grimoire-test-branch'
+    )
     expect(infoMock).toHaveBeenCalledWith(
       "Branch 'grimoire-test-branch' starts with auto-pass prefix 'grimoire-'. " +
-      "Skipping status checks and marking as successful."
+        'Skipping status checks and marking as successful.'
     )
 
     // Verify: Confirm that we did NOT proceed to the normal check logic
@@ -312,9 +314,7 @@ describe('main() auto-pass integration', () => {
     expect(allInfoCalls).not.toContain(
       expect.stringContaining('Using required-check-runs mode')
     )
-    expect(allInfoCalls).not.toContain(
-      expect.stringContaining('Waiting')
-    )
+    expect(allInfoCalls).not.toContain(expect.stringContaining('Waiting'))
     expect(allInfoCalls).not.toContain(
       expect.stringContaining('Starting combined status check loop')
     )
@@ -324,7 +324,7 @@ describe('main() auto-pass integration', () => {
     // Setup: Configure inputs with auto-pass prefix
     getInputMock.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'token': 'fake-token',
+        token: 'fake-token',
         'initial-delay-seconds': '0', // No delay for testing
         'interval-seconds': '1',
         'timeout-seconds': '1', // Short timeout for testing
@@ -367,24 +367,26 @@ describe('main() auto-pass integration', () => {
     }
     const mockOctokit = {
       paginate: {
-        iterator: jest.fn().mockImplementation((endpoint: any, _params: any) => {
-          // Paginated combined status responses
-          if (endpoint === mockRepos.getCombinedStatusForRef) {
+        iterator: jest
+          .fn()
+          .mockImplementation((endpoint: any, _params: any) => {
+            // Paginated combined status responses
+            if (endpoint === mockRepos.getCombinedStatusForRef) {
+              return (async function* () {
+                yield {data: {statuses: []}}
+              })()
+            }
+            // Paginated check run responses
+            if (endpoint === mockChecks.listForRef) {
+              return (async function* () {
+                yield {data: []}
+              })()
+            }
+            // Default: empty array-shaped data
             return (async function* () {
-              yield { data: { statuses: [] } }
+              yield {data: []}
             })()
-          }
-          // Paginated check run responses
-          if (endpoint === mockChecks.listForRef) {
-            return (async function* () {
-              yield { data: [] }
-            })()
-          }
-          // Default: empty array-shaped data
-          return (async function* () {
-            yield { data: [] }
-          })()
-        })
+          })
       },
       rest: {
         repos: mockRepos,
@@ -402,7 +404,7 @@ describe('main() auto-pass integration', () => {
     expect(infoMock).toHaveBeenCalledWith('Detected branch: feature-branch')
     expect(infoMock).toHaveBeenCalledWith(
       "Branch 'feature-branch' does not match auto-pass prefix 'grimoire-'. " +
-      "Proceeding with normal status check logic."
+        'Proceeding with normal status check logic.'
     )
 
     // Verify: Confirm that we DID proceed to normal logic
@@ -414,7 +416,7 @@ describe('main() auto-pass integration', () => {
     // Setup: Configure inputs WITHOUT auto-pass prefix
     getInputMock.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'token': 'fake-token',
+        token: 'fake-token',
         'initial-delay-seconds': '0', // No delay for testing
         'interval-seconds': '1',
         'timeout-seconds': '1', // Short timeout for testing
@@ -455,10 +457,10 @@ describe('main() auto-pass integration', () => {
           return (async function* () {
             // For combined status, mimic { data: { statuses: [] } }
             if (method === mockOctokit.rest.repos.getCombinedStatusForRef) {
-              yield { data: { statuses: [] } }
+              yield {data: {statuses: []}}
             } else if (method === mockOctokit.rest.checks.listForRef) {
               // For check runs, mimic { data: [] } (array of check runs)
-              yield { data: [] }
+              yield {data: []}
             }
           })()
         })
@@ -481,8 +483,12 @@ describe('main() auto-pass integration', () => {
 
     // Verify: Should NOT log any branch detection messages
     const allInfoCalls = infoMock.mock.calls.map(call => call[0])
-    expect(allInfoCalls).not.toContain(expect.stringContaining('Detected branch'))
-    expect(allInfoCalls).not.toContain(expect.stringContaining('auto-pass prefix'))
+    expect(allInfoCalls).not.toContain(
+      expect.stringContaining('Detected branch')
+    )
+    expect(allInfoCalls).not.toContain(
+      expect.stringContaining('auto-pass prefix')
+    )
 
     // Verify: Should proceed directly to normal logic
     expect(allInfoCalls).toContain('Starting combined status check loop...')
@@ -492,7 +498,7 @@ describe('main() auto-pass integration', () => {
     // Setup: Configure inputs WITH auto-pass prefix
     getInputMock.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'token': 'fake-token',
+        token: 'fake-token',
         'initial-delay-seconds': '0',
         'interval-seconds': '1',
         'timeout-seconds': '1',
@@ -529,24 +535,26 @@ describe('main() auto-pass integration', () => {
     }
     const mockOctokit = {
       paginate: {
-        iterator: jest.fn().mockImplementation((endpoint: any, _params: any) => {
-          // Paginated combined status responses
-          if (endpoint === mockRepos.getCombinedStatusForRef) {
+        iterator: jest
+          .fn()
+          .mockImplementation((endpoint: any, _params: any) => {
+            // Paginated combined status responses
+            if (endpoint === mockRepos.getCombinedStatusForRef) {
+              return (async function* () {
+                yield {data: {statuses: []}}
+              })()
+            }
+            // Paginated check run responses
+            if (endpoint === mockChecks.listForRef) {
+              return (async function* () {
+                yield {data: []}
+              })()
+            }
+            // Default: empty array-shaped data
             return (async function* () {
-              yield { data: { statuses: [] } }
+              yield {data: []}
             })()
-          }
-          // Paginated check run responses
-          if (endpoint === mockChecks.listForRef) {
-            return (async function* () {
-              yield { data: [] }
-            })()
-          }
-          // Default: empty array-shaped data
-          return (async function* () {
-            yield { data: [] }
-          })()
-        })
+          })
       },
       rest: {
         repos: mockRepos,
@@ -563,7 +571,7 @@ describe('main() auto-pass integration', () => {
     // Verify: Should log that branch name could not be determined
     expect(infoMock).toHaveBeenCalledWith(
       "Could not determine branch name for event type 'workflow_dispatch'. " +
-      "Proceeding with normal status check logic."
+        'Proceeding with normal status check logic.'
     )
 
     // Verify: Should proceed to normal logic despite auto-pass being configured
@@ -571,7 +579,11 @@ describe('main() auto-pass integration', () => {
     expect(allInfoCalls).toContain('Starting combined status check loop...')
 
     // Verify: Should NOT log branch detection or auto-pass messages
-    expect(allInfoCalls).not.toContain(expect.stringContaining('Detected branch'))
-    expect(allInfoCalls).not.toContain(expect.stringContaining('starts with auto-pass prefix'))
+    expect(allInfoCalls).not.toContain(
+      expect.stringContaining('Detected branch')
+    )
+    expect(allInfoCalls).not.toContain(
+      expect.stringContaining('starts with auto-pass prefix')
+    )
   })
 })

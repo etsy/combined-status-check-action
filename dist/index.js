@@ -22,31 +22,29 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __asyncValues = (this && this.__asyncValues) || function (o) {
-    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-    var m = o[Symbol.asyncIterator], i;
-    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
-    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
-    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.main = exports.getBranchFromContext = exports.requiredCheckRunLoopIteration = exports.validateInputs = exports.parseRequiredCheckRuns = void 0;
+exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
+exports.validateInputs = validateInputs;
+exports.requiredCheckRunLoopIteration = requiredCheckRunLoopIteration;
+exports.getBranchFromContext = getBranchFromContext;
+exports.main = main;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
 const DEFAULT_REGEX = '^.*$';
@@ -65,7 +63,6 @@ function parseRequiredCheckRuns(input) {
         .filter(line => line.length > 0);
     return new Set(names);
 }
-exports.parseRequiredCheckRuns = parseRequiredCheckRuns;
 /**
  * Validate that required-check-runs is not used with custom regex inputs.
  * Required checks mode only monitors specific check runs, not statuses,
@@ -85,85 +82,61 @@ function validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns)
             'Please use one or the other.');
     }
 }
-exports.validateInputs = validateInputs;
 /**
  * Fetch check runs and categorize them by required check status.
  */
-function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
-    var _a, e_1, _b, _c;
-    return __awaiter(this, void 0, void 0, function* () {
-        const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            ref: sha
-        });
-        // Track check runs by name, keeping only the most recent (highest ID) for each name.
-        // GitHub's Check Runs API can return multiple check runs with the same name
-        // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
-        const foundChecks = new Map();
-        try {
-            for (var _d = true, checkRunsIterator_1 = __asyncValues(checkRunsIterator), checkRunsIterator_1_1; checkRunsIterator_1_1 = yield checkRunsIterator_1.next(), _a = checkRunsIterator_1_1.done, !_a;) {
-                _c = checkRunsIterator_1_1.value;
-                _d = false;
-                try {
-                    const response = _c;
-                    for (const checkRun of response.data) {
-                        if (requiredCheckRuns.has(checkRun.name)) {
-                            const existing = foundChecks.get(checkRun.name);
-                            // Only update if this check run has a higher ID (more recent)
-                            if (!existing || checkRun.id > existing.id) {
-                                foundChecks.set(checkRun.name, {
-                                    id: checkRun.id,
-                                    status: checkRun.status,
-                                    conclusion: checkRun.conclusion
-                                });
-                            }
-                        }
-                    }
-                }
-                finally {
-                    _d = true;
-                }
-            }
-        }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
-        finally {
-            try {
-                if (!_d && !_a && (_b = checkRunsIterator_1.return)) yield _b.call(checkRunsIterator_1);
-            }
-            finally { if (e_1) throw e_1.error; }
-        }
-        const succeeded = [];
-        const pending = [];
-        const failed = [];
-        const missing = [];
-        for (const name of requiredCheckRuns) {
-            const check = foundChecks.get(name);
-            if (!check) {
-                missing.push(name);
-            }
-            else if (check.status !== 'completed') {
-                pending.push(name);
-            }
-            else if (check.conclusion === 'success' ||
-                check.conclusion === 'skipped' ||
-                check.conclusion === 'neutral') {
-                succeeded.push(name);
-            }
-            else {
-                failed.push(name);
-            }
-        }
-        core.info(`Required checks - succeeded: ${succeeded.length}, pending: ${pending.length}, failed: ${failed.length}, missing: ${missing.length}`);
-        return { succeeded, pending, failed, missing };
+async function requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns) {
+    const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        ref: sha
     });
+    // Track check runs by name, keeping only the most recent (highest ID) for each name.
+    // GitHub's Check Runs API can return multiple check runs with the same name
+    // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
+    const foundChecks = new Map();
+    for await (const response of checkRunsIterator) {
+        for (const checkRun of response.data) {
+            if (requiredCheckRuns.has(checkRun.name)) {
+                const existing = foundChecks.get(checkRun.name);
+                // Only update if this check run has a higher ID (more recent)
+                if (!existing || checkRun.id > existing.id) {
+                    foundChecks.set(checkRun.name, {
+                        id: checkRun.id,
+                        status: checkRun.status,
+                        conclusion: checkRun.conclusion
+                    });
+                }
+            }
+        }
+    }
+    const succeeded = [];
+    const pending = [];
+    const failed = [];
+    const missing = [];
+    for (const name of requiredCheckRuns) {
+        const check = foundChecks.get(name);
+        if (!check) {
+            missing.push(name);
+        }
+        else if (check.status !== 'completed') {
+            pending.push(name);
+        }
+        else if (check.conclusion === 'success' ||
+            check.conclusion === 'skipped' ||
+            check.conclusion === 'neutral') {
+            succeeded.push(name);
+        }
+        else {
+            failed.push(name);
+        }
+    }
+    core.info(`Required checks - succeeded: ${succeeded.length}, pending: ${pending.length}, failed: ${failed.length}, missing: ${missing.length}`);
+    return { succeeded, pending, failed, missing };
 }
-exports.requiredCheckRunLoopIteration = requiredCheckRunLoopIteration;
-function wait(seconds) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return new Promise(resolve => {
-            setTimeout(resolve, seconds * 1000);
-        });
+async function wait(seconds) {
+    return new Promise(resolve => {
+        setTimeout(resolve, seconds * 1000);
     });
 }
 function getSHAFromContext(ctx) {
@@ -189,54 +162,50 @@ function getBranchFromContext(ctx) {
         return null;
     }
 }
-exports.getBranchFromContext = getBranchFromContext;
-function main() {
-    return __awaiter(this, void 0, void 0, function* () {
-        const githubToken = core.getInput('token', { required: true });
-        const initialDelaySeconds = parseInt(core.getInput('initial-delay-seconds', { required: true }));
-        const intervalSeconds = parseInt(core.getInput('interval-seconds', { required: true }));
-        const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
-        const statusRegexInput = core.getInput('status-regex', { required: true });
-        const checkRunRegexInput = core.getInput('check-run-regex', { required: true });
-        const requiredCheckRunsInput = core.getInput('required-check-runs');
-        const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
-        // Validate mutual exclusivity
-        validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns);
-        const statusRegex = new RegExp(statusRegexInput);
-        const checkRunRegex = new RegExp(checkRunRegexInput);
-        const sha = getSHAFromContext(github.context);
-        core.info(`Executing combined-status-check-action on SHA ${sha}.`);
-        // Check for auto-pass branch prefix
-        const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix');
-        if (autoPassBranchPrefix) {
-            const branchName = getBranchFromContext(github.context);
-            if (branchName) {
-                core.info(`Detected branch: ${branchName}`);
-                if (branchName.startsWith(autoPassBranchPrefix)) {
-                    core.info(`Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
-                        `Skipping status checks and marking as successful.`);
-                    return; // Early exit - action succeeds
-                }
-                else {
-                    core.info(`Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
-                        `Proceeding with normal status check logic.`);
-                }
+async function main() {
+    const githubToken = core.getInput('token', { required: true });
+    const initialDelaySeconds = parseInt(core.getInput('initial-delay-seconds', { required: true }));
+    const intervalSeconds = parseInt(core.getInput('interval-seconds', { required: true }));
+    const timeoutSeconds = parseInt(core.getInput('timeout-seconds', { required: true }));
+    const statusRegexInput = core.getInput('status-regex', { required: true });
+    const checkRunRegexInput = core.getInput('check-run-regex', { required: true });
+    const requiredCheckRunsInput = core.getInput('required-check-runs');
+    const requiredCheckRuns = parseRequiredCheckRuns(requiredCheckRunsInput);
+    // Validate mutual exclusivity
+    validateInputs(statusRegexInput, checkRunRegexInput, requiredCheckRuns);
+    const statusRegex = new RegExp(statusRegexInput);
+    const checkRunRegex = new RegExp(checkRunRegexInput);
+    const sha = getSHAFromContext(github.context);
+    core.info(`Executing combined-status-check-action on SHA ${sha}.`);
+    // Check for auto-pass branch prefix
+    const autoPassBranchPrefix = core.getInput('auto-pass-branch-prefix');
+    if (autoPassBranchPrefix) {
+        const branchName = getBranchFromContext(github.context);
+        if (branchName) {
+            core.info(`Detected branch: ${branchName}`);
+            if (branchName.startsWith(autoPassBranchPrefix)) {
+                core.info(`Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
+                    `Skipping status checks and marking as successful.`);
+                return; // Early exit - action succeeds
             }
             else {
-                core.info(`Could not determine branch name for event type '${github.context.eventName}'. ` +
+                core.info(`Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
                     `Proceeding with normal status check logic.`);
             }
         }
-        if (requiredCheckRuns.size > 0) {
-            core.info(`Using required-check-runs mode with ${requiredCheckRuns.size} required checks: [${[...requiredCheckRuns].join(', ')}]`);
+        else {
+            core.info(`Could not determine branch name for event type '${github.context.eventName}'. ` +
+                `Proceeding with normal status check logic.`);
         }
-        const octokit = github.getOctokit(githubToken);
-        core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
-        yield wait(initialDelaySeconds);
-        yield loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds);
-    });
+    }
+    if (requiredCheckRuns.size > 0) {
+        core.info(`Using required-check-runs mode with ${requiredCheckRuns.size} required checks: [${[...requiredCheckRuns].join(', ')}]`);
+    }
+    const octokit = github.getOctokit(githubToken);
+    core.info(`Waiting ${initialDelaySeconds} seconds for checks to start...`);
+    await wait(initialDelaySeconds);
+    await loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds);
 }
-exports.main = main;
 function isStatusPending(status) {
     return status.state === 'pending';
 }
@@ -251,194 +220,152 @@ function isCheckRunFailed(run) {
         run.conclusion === 'failure' ||
         run.conclusion === 'timed_out');
 }
-function loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let elapsedSeconds = 0;
-        const useRequiredChecksMode = requiredCheckRuns.size > 0;
-        core.info('Starting combined status check loop...');
-        do {
-            if (useRequiredChecksMode) {
-                // Required checks mode: only track specific check runs by name
-                // Skip status API call since we only care about check runs
-                const requiredResult = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
-                // Fail immediately if any required checks have failed
-                if (requiredResult.failed.length > 0) {
-                    core.setFailed(`The following required check runs have failed: [${requiredResult.failed.join(', ')}].`);
-                    return;
-                }
-                // Check if there are still pending/missing checks
-                const hasPendingWork = requiredResult.pending.length > 0 || requiredResult.missing.length > 0;
-                if (hasPendingWork) {
-                    if (requiredResult.pending.length > 0) {
-                        core.info(`The following required check runs are pending: [${requiredResult.pending.join(', ')}].`);
-                    }
-                    if (requiredResult.missing.length > 0) {
-                        core.info(`The following required check runs have not appeared yet: [${requiredResult.missing.join(', ')}].`);
-                    }
-                    core.info(`Waiting for ${requiredResult.pending.length} pending checks and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
-                    yield wait(intervalSeconds);
-                    elapsedSeconds += intervalSeconds;
-                    continue;
-                }
-                core.info(`All ${requiredCheckRuns.size} required check runs have completed successfully.`);
-                return;
-            }
-            else {
-                // Original regex mode
-                const [statusLoopResult, checkRunLoopResult] = yield Promise.all([
-                    combinedStatusLoopIteration(octokit, sha, statusRegex),
-                    checkRunLoopIteration(octokit, sha, checkRunRegex)
-                ]);
-                const [pendingStatuses, completedStatuses] = statusLoopResult;
-                const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
-                if (pendingStatuses.length || pendingCheckRuns.length) {
-                    const statusNames = pendingStatuses.map(status => status.context);
-                    const checkRunNames = pendingCheckRuns.map(run => run.name);
-                    core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
-                    core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
-                    core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
-                    yield wait(intervalSeconds);
-                    elapsedSeconds += intervalSeconds;
-                    continue;
-                }
-                const failedStatuses = completedStatuses
-                    .filter(isStatusFailed)
-                    .map(status => status.context);
-                const failedCheckRuns = completedCheckRuns
-                    .filter(isCheckRunFailed)
-                    .map(run => run.name);
-                if (failedStatuses.length) {
-                    core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
-                }
-                if (failedCheckRuns.length) {
-                    core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
-                }
-                core.info('All statuses and check runs have completed.');
-                return;
-            }
-        } while (elapsedSeconds < timeoutSeconds);
+async function loop(octokit, sha, statusRegex, checkRunRegex, requiredCheckRuns, intervalSeconds, timeoutSeconds) {
+    let elapsedSeconds = 0;
+    const useRequiredChecksMode = requiredCheckRuns.size > 0;
+    core.info('Starting combined status check loop...');
+    do {
         if (useRequiredChecksMode) {
-            // Provide more specific timeout message for required checks mode
-            const result = yield requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
-            if (result.missing.length > 0) {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs never appeared: [${result.missing.join(', ')}].`);
+            // Required checks mode: only track specific check runs by name
+            // Skip status API call since we only care about check runs
+            const requiredResult = await requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
+            // Fail immediately if any required checks have failed
+            if (requiredResult.failed.length > 0) {
+                core.setFailed(`The following required check runs have failed: [${requiredResult.failed.join(', ')}].`);
+                return;
             }
-            else if (result.pending.length > 0) {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs are still pending: [${result.pending.join(', ')}].`);
+            // Check if there are still pending/missing checks
+            const hasPendingWork = requiredResult.pending.length > 0 || requiredResult.missing.length > 0;
+            if (hasPendingWork) {
+                if (requiredResult.pending.length > 0) {
+                    core.info(`The following required check runs are pending: [${requiredResult.pending.join(', ')}].`);
+                }
+                if (requiredResult.missing.length > 0) {
+                    core.info(`The following required check runs have not appeared yet: [${requiredResult.missing.join(', ')}].`);
+                }
+                core.info(`Waiting for ${requiredResult.pending.length} pending checks and ${requiredResult.missing.length} missing checks. Checking again in ${intervalSeconds} seconds.`);
+                await wait(intervalSeconds);
+                elapsedSeconds += intervalSeconds;
+                continue;
             }
-            else {
-                core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
+            core.info(`All ${requiredCheckRuns.size} required check runs have completed successfully.`);
+            return;
+        }
+        else {
+            // Original regex mode
+            const [statusLoopResult, checkRunLoopResult] = await Promise.all([
+                combinedStatusLoopIteration(octokit, sha, statusRegex),
+                checkRunLoopIteration(octokit, sha, checkRunRegex)
+            ]);
+            const [pendingStatuses, completedStatuses] = statusLoopResult;
+            const [pendingCheckRuns, completedCheckRuns] = checkRunLoopResult;
+            if (pendingStatuses.length || pendingCheckRuns.length) {
+                const statusNames = pendingStatuses.map(status => status.context);
+                const checkRunNames = pendingCheckRuns.map(run => run.name);
+                core.info(`The following statuses are pending: [${statusNames.join(', ')}].`);
+                core.info(`The following check runs are pending: [${checkRunNames.join(', ')}].`);
+                core.info(`Waiting for ${pendingStatuses.length} statuses and ${pendingCheckRuns.length} check runs to complete, checking again in ${intervalSeconds} seconds.`);
+                await wait(intervalSeconds);
+                elapsedSeconds += intervalSeconds;
+                continue;
             }
+            const failedStatuses = completedStatuses
+                .filter(isStatusFailed)
+                .map(status => status.context);
+            const failedCheckRuns = completedCheckRuns
+                .filter(isCheckRunFailed)
+                .map(run => run.name);
+            if (failedStatuses.length) {
+                core.setFailed(`The following statuses have failed: [${failedStatuses.join(', ')}].`);
+            }
+            if (failedCheckRuns.length) {
+                core.setFailed(`The following check runs have failed: [${failedCheckRuns.join(', ')}].`);
+            }
+            core.info('All statuses and check runs have completed.');
+            return;
+        }
+    } while (elapsedSeconds < timeoutSeconds);
+    if (useRequiredChecksMode) {
+        // Provide more specific timeout message for required checks mode
+        const result = await requiredCheckRunLoopIteration(octokit, sha, requiredCheckRuns);
+        if (result.missing.length > 0) {
+            core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs never appeared: [${result.missing.join(', ')}].`);
+        }
+        else if (result.pending.length > 0) {
+            core.setFailed(`Action timed out after ${timeoutSeconds} seconds. The following required check runs are still pending: [${result.pending.join(', ')}].`);
         }
         else {
             core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
         }
-    });
+    }
+    else {
+        core.setFailed(`Action timed out after ${timeoutSeconds} seconds.`);
+    }
 }
-function combinedStatusLoopIteration(octokit, sha, regex) {
-    var _a, e_2, _b, _c;
-    return __awaiter(this, void 0, void 0, function* () {
-        const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            ref: sha
-        });
-        let totalStatuses = 0;
-        let filteredStatuses = 0;
-        const pendingStatuses = [];
-        const completedStatuses = [];
-        try {
-            for (var _d = true, combinedStatusIterator_1 = __asyncValues(combinedStatusIterator), combinedStatusIterator_1_1; combinedStatusIterator_1_1 = yield combinedStatusIterator_1.next(), _a = combinedStatusIterator_1_1.done, !_a;) {
-                _c = combinedStatusIterator_1_1.value;
-                _d = false;
-                try {
-                    const response = _c;
-                    totalStatuses += response.data.statuses.length;
-                    for (const status of response.data.statuses) {
-                        if (!regex.test(status.context)) {
-                            continue;
-                        }
-                        filteredStatuses++;
-                        if (isStatusPending(status)) {
-                            pendingStatuses.push(status);
-                        }
-                        else {
-                            completedStatuses.push(status);
-                        }
-                    }
-                }
-                finally {
-                    _d = true;
-                }
-            }
-        }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
-        finally {
-            try {
-                if (!_d && !_a && (_b = combinedStatusIterator_1.return)) yield _b.call(combinedStatusIterator_1);
-            }
-            finally { if (e_2) throw e_2.error; }
-        }
-        core.info(`Found ${totalStatuses} total statuses, keeping ${filteredStatuses}.`);
-        return [pendingStatuses, completedStatuses];
+async function combinedStatusLoopIteration(octokit, sha, regex) {
+    const combinedStatusIterator = octokit.paginate.iterator(octokit.rest.repos.getCombinedStatusForRef, {
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        ref: sha
     });
-}
-function checkRunLoopIteration(octokit, sha, regex) {
-    var _a, e_3, _b, _c;
-    return __awaiter(this, void 0, void 0, function* () {
-        const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            ref: sha
-        });
-        let totalCheckRuns = 0;
-        // Track check runs by name, keeping only the most recent (highest ID) for each name.
-        // GitHub's Check Runs API can return multiple check runs with the same name
-        // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
-        const checkRunsByName = new Map();
-        try {
-            for (var _d = true, checkRunsIterator_2 = __asyncValues(checkRunsIterator), checkRunsIterator_2_1; checkRunsIterator_2_1 = yield checkRunsIterator_2.next(), _a = checkRunsIterator_2_1.done, !_a;) {
-                _c = checkRunsIterator_2_1.value;
-                _d = false;
-                try {
-                    const response = _c;
-                    totalCheckRuns += response.data.length;
-                    for (const checkRun of response.data) {
-                        if (!regex.test(checkRun.name)) {
-                            continue;
-                        }
-                        const existing = checkRunsByName.get(checkRun.name);
-                        // Only update if this check run has a higher ID (more recent)
-                        if (!existing || checkRun.id > existing.id) {
-                            checkRunsByName.set(checkRun.name, checkRun);
-                        }
-                    }
-                }
-                finally {
-                    _d = true;
-                }
+    let totalStatuses = 0;
+    let filteredStatuses = 0;
+    const pendingStatuses = [];
+    const completedStatuses = [];
+    for await (const response of combinedStatusIterator) {
+        totalStatuses += response.data.statuses.length;
+        for (const status of response.data.statuses) {
+            if (!regex.test(status.context)) {
+                continue;
             }
-        }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
-        finally {
-            try {
-                if (!_d && !_a && (_b = checkRunsIterator_2.return)) yield _b.call(checkRunsIterator_2);
-            }
-            finally { if (e_3) throw e_3.error; }
-        }
-        const pendingCheckRuns = [];
-        const completedCheckRuns = [];
-        for (const checkRun of checkRunsByName.values()) {
-            if (isCheckRunCompleted(checkRun)) {
-                completedCheckRuns.push(checkRun);
+            filteredStatuses++;
+            if (isStatusPending(status)) {
+                pendingStatuses.push(status);
             }
             else {
-                pendingCheckRuns.push(checkRun);
+                completedStatuses.push(status);
             }
         }
-        core.info(`Found ${totalCheckRuns} total check runs, keeping ${checkRunsByName.size} unique.`);
-        return [pendingCheckRuns, completedCheckRuns];
+    }
+    core.info(`Found ${totalStatuses} total statuses, keeping ${filteredStatuses}.`);
+    return [pendingStatuses, completedStatuses];
+}
+async function checkRunLoopIteration(octokit, sha, regex) {
+    const checkRunsIterator = octokit.paginate.iterator(octokit.rest.checks.listForRef, {
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        ref: sha
     });
+    let totalCheckRuns = 0;
+    // Track check runs by name, keeping only the most recent (highest ID) for each name.
+    // GitHub's Check Runs API can return multiple check runs with the same name
+    // (e.g., due to re-runs), and the order is not guaranteed to be deterministic.
+    const checkRunsByName = new Map();
+    for await (const response of checkRunsIterator) {
+        totalCheckRuns += response.data.length;
+        for (const checkRun of response.data) {
+            if (!regex.test(checkRun.name)) {
+                continue;
+            }
+            const existing = checkRunsByName.get(checkRun.name);
+            // Only update if this check run has a higher ID (more recent)
+            if (!existing || checkRun.id > existing.id) {
+                checkRunsByName.set(checkRun.name, checkRun);
+            }
+        }
+    }
+    const pendingCheckRuns = [];
+    const completedCheckRuns = [];
+    for (const checkRun of checkRunsByName.values()) {
+        if (isCheckRunCompleted(checkRun)) {
+            completedCheckRuns.push(checkRun);
+        }
+        else {
+            pendingCheckRuns.push(checkRun);
+        }
+    }
+    core.info(`Found ${totalCheckRuns} total check runs, keeping ${checkRunsByName.size} unique.`);
+    return [pendingCheckRuns, completedCheckRuns];
 }
 // Only run main() when not in test environment
 if (process.env.NODE_ENV !== 'test') {
