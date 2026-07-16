@@ -22,8 +22,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
       - run: npm install
@@ -32,7 +32,7 @@ jobs:
   test-regex-mode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./
         with:
           check-run-regex: "^sleep-for-CI$"
@@ -40,7 +40,7 @@ jobs:
   test-required-checks-mode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./
         with:
           required-check-runs: |
