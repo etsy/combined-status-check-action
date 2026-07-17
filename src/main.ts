@@ -157,7 +157,9 @@ function getSHAFromContext(ctx: typeof github.context): string {
   }
 }
 
-export function getBranchFromContext(ctx: typeof github.context): string | null {
+export function getBranchFromContext(
+  ctx: typeof github.context
+): string | null {
   if (ctx.eventName === 'pull_request') {
     const pullRequestEvent = ctx.payload as PullRequestEvent
     return pullRequestEvent.pull_request.head.ref
@@ -210,19 +212,19 @@ export async function main(): Promise<void> {
       if (branchName.startsWith(autoPassBranchPrefix)) {
         core.info(
           `Branch '${branchName}' starts with auto-pass prefix '${autoPassBranchPrefix}'. ` +
-          `Skipping status checks and marking as successful.`
+            `Skipping status checks and marking as successful.`
         )
         return // Early exit - action succeeds
       } else {
         core.info(
           `Branch '${branchName}' does not match auto-pass prefix '${autoPassBranchPrefix}'. ` +
-          `Proceeding with normal status check logic.`
+            `Proceeding with normal status check logic.`
         )
       }
     } else {
       core.info(
         `Could not determine branch name for event type '${github.context.eventName}'. ` +
-        `Proceeding with normal status check logic.`
+          `Proceeding with normal status check logic.`
       )
     }
   }
