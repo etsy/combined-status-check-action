@@ -9,7 +9,7 @@ This action allows you to combine a bunch of individual status checks into one r
 Filter checks by regex pattern - useful for dynamically named checks:
 
 ```yaml
-- uses: etsy/combined-status-check@v1
+- uses: etsy/combined-status-check@v2
   with:
     status-regex: "^Some Third Party"
 ```
@@ -19,7 +19,7 @@ Filter checks by regex pattern - useful for dynamically named checks:
 Specify exact check run names that must all appear and succeed:
 
 ```yaml
-- uses: etsy/combined-status-check@v1
+- uses: etsy/combined-status-check@v2
   with:
     required-check-runs: |
       build
@@ -39,7 +39,7 @@ This mode:
 Skip all status checks for branches with a specific prefix:
 
 ```yaml
-- uses: etsy/combined-status-check@v1
+- uses: etsy/combined-status-check@v2
   with:
     auto-pass-branch-prefix: "grimoire-"
     required-check-runs: |
